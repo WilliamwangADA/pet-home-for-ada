@@ -6,6 +6,7 @@ export const state = {
   pet: null,                    // {breed, name}
   stats: { hunger: 80, clean: 80, energy: 90 },
   decor: {},                    // id -> {x, y}（占屏幕比例）
+  wardrobe: { owned: {}, equipped: [] },
   hintsDone: {},
   last: Date.now(),
 };
@@ -16,6 +17,7 @@ export function load() {
     if (!raw) return false;
     const s = JSON.parse(raw);
     Object.assign(state, s);
+    if (!state.wardrobe) state.wardrobe = { owned: {}, equipped: [] };
     // 离线衰减：温柔地降一点，但绝不让宠物太惨（下限 35）
     const mins = Math.min((Date.now() - (s.last || Date.now())) / 60000, 600);
     for (const k of ['hunger', 'clean']) {

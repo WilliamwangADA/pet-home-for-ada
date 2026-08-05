@@ -44,6 +44,7 @@ export const sfx = {
   splash() { noise(0.4, 700, 0.25); tone(300, 0.3, 'sine', 0.1, 0, -150); },
   bubble() { tone(300 + Math.random() * 250, 0.12, 'sine', 0.12, 0, 300); },
   chime()  { [523, 659, 784].forEach((f, i) => tone(f, 0.6, 'sine', 0.12, i * 0.18)); },
+  boing()  { tone(180, 0.25, 'sine', 0.25, 0, 240); },
   night()  { [784, 659, 523, 392].forEach((f, i) => tone(f, 0.7, 'sine', 0.1, i * 0.3)); },
   brush()  { noise(0.14, 1800, 0.08); },
 };

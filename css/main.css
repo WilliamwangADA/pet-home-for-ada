@@ -28,6 +28,24 @@
 .pet.face-left .flip{transform:scaleX(-1)}
 .pet [data-part]{transform-box:fill-box}
 
+/* 正/侧双视图 */
+.pet .vf,.pet .vs{position:absolute;inset:0}
+.pet .vs{display:none}
+.pet.sideview .vf{display:none}
+.pet.sideview .vs{display:block}
+/* 侧视四腿走路 */
+.pet .sleg{transform-origin:50% 15%}
+.pet.walking .legF1{animation:legswing .4s ease-in-out infinite}
+.pet.walking .legB2{animation:legswing .4s ease-in-out infinite}
+.pet.walking .legF2{animation:legswing2 .4s ease-in-out infinite}
+.pet.walking .legB1{animation:legswing2 .4s ease-in-out infinite}
+@keyframes legswing{0%,100%{transform:rotate(14deg)}50%{transform:rotate(-14deg)}}
+@keyframes legswing2{0%,100%{transform:rotate(-14deg)}50%{transform:rotate(14deg)}}
+.pet.npc{cursor:default}
+.nametag{position:absolute;left:50%;top:-16%;transform:translateX(-50%);background:rgba(255,255,255,.9);
+  border-radius:2.5vmin;padding:.5vmin 2vmin;font-size:2.3vmin;font-weight:700;color:var(--text);
+  box-shadow:var(--ui-shadow);white-space:nowrap;pointer-events:none}
+
 .pet .p-body{transform-origin:50% 90%;animation:breath 2.6s ease-in-out infinite}
 @keyframes breath{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.025) scaleX(1.008)}}
 .pet .p-tail{transform-origin:15% 85%;animation:wag 1.6s ease-in-out infinite}
@@ -214,9 +232,52 @@
 #hint-hand.show{display:block}
 @keyframes handmove{0%,100%{transform:translate(0,0)}50%{transform:translate(6vmin,-3vmin)}}
 
+/* ---------- 场景过渡 ---------- */
+#veil{position:fixed;inset:0;background:radial-gradient(circle at 50% 50%,#ffd9b8,#f4a96e);
+  opacity:0;transition:opacity .6s;z-index:3000;pointer-events:none}
+#veil.on{opacity:1}
+
+/* ---------- 公园 ---------- */
+.cloudmove{animation:clouddrift 46s linear infinite}
+.cloudmove2{animation:clouddrift 64s linear infinite reverse}
+@keyframes clouddrift{0%{transform:translateX(-6%)}100%{transform:translateX(9%)}}
+.sway{transform-box:fill-box;transform-origin:50% 100%;animation:swayflower 3.2s ease-in-out infinite}
+@keyframes swayflower{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(5deg)}}
+.butterfly{position:absolute;width:7vmin;height:6vmin;margin-left:-3.5vmin;margin-top:-3vmin;
+  z-index:950;cursor:pointer;transition:opacity .4s}
+.butterfly svg{width:100%;height:100%;overflow:visible}
+.butterfly .bwl,.butterfly .bwr{transform-box:fill-box;transform-origin:100% 50%;
+  animation:bflap .28s ease-in-out infinite}
+.butterfly .bwr{transform-origin:0 50%;animation-name:bflap2}
+@keyframes bflap{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.45)}}
+@keyframes bflap2{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.45)}}
+.butterfly.flee{opacity:0}
+.fetch-ball{position:absolute;width:8vmin;height:8vmin;margin-left:-4vmin;margin-top:-6.5vmin;
+  z-index:960;pointer-events:none}
+.fetch-ball svg{width:100%;height:100%}
+.pbubble{position:absolute;border-radius:50%;z-index:955;cursor:pointer;
+  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.95),rgba(200,235,255,.55) 55%,rgba(160,215,245,.35));
+  animation:pbfloat 4s ease-out forwards}
+@keyframes pbfloat{0%{transform:translateY(0) scale(.5);opacity:0}10%{opacity:1}
+  100%{transform:translateY(-46vmin) scale(1.1);opacity:0}}
+
+/* ---------- 衣柜（复用商店样式）---------- */
+#wardrobe{position:absolute;right:0;top:0;bottom:0;width:34vmin;background:var(--cream);
+  box-shadow:-1vmin 0 3vmin rgba(150,90,40,.25);z-index:1700;
+  transform:translateX(110%);transition:transform .45s cubic-bezier(.3,1.2,.5,1);
+  display:flex;flex-direction:column;padding:max(2vmin,env(safe-area-inset-top)) 0 2vmin}
+#wardrobe.show{transform:none}
+#wardrobe h3{margin:1vmin 3vmin 2vmin;color:var(--text);font-size:3.8vmin;display:flex;
+  align-items:center;justify-content:space-between}
+#wd-close{width:7vmin;height:7vmin;font-size:3.6vmin}
+#wd-list{flex:1;overflow-y:auto;padding:0 2.6vmin;display:flex;flex-direction:column;gap:2.2vmin}
+.cloth-thumb{display:flex;align-items:center;justify-content:center;font-size:6vmin;
+  background:var(--cream);border-radius:2vmin}
+.wd-item.worn{outline:.6vmin solid #ffb0c4;outline-offset:-.6vmin}
+
 @media (orientation:portrait){
   #baskets{gap:2vmin}
   .basket{width:40vmin}
-  #shop{width:46vmin}
+  #shop,#wardrobe{width:46vmin}
   .thought{font-size:4vmin}
 }

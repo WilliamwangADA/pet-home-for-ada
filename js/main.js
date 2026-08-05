@@ -1,5 +1,6 @@
-/* ============ Ada的宠物小窝 · 主逻辑 ============ */
-import { BREEDS, petSVG, elfSVG, tubSVG, bowlSVG, FURNI, roomBgSVG } from './art.js';
+/* ============ Ada的宠物小窝 · 主逻辑 v0.2（2.5D + 公园 + 换装）============ */
+import { BREEDS, petSVG, petSideSVG, elfSVG, tubSVG, bowlSVG, FURNI, CLOTHES,
+         roomBgSVG, parkBgSVG, fetchBallSVG, butterflySVG } from './art.js';
 import { sfx, voice, petVoice } from './audio.js';
 import { state, load, save } from './save.js';
 
@@ -12,9 +13,14 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-/* 地板活动区（屏幕比例） */
-const FLOOR = { y0: 0.63, y1: 0.90, x0: 0.08, x1: 0.92 };
-const depthScale = (y) => 0.72 + 0.5 * (y - FLOOR.y0) / (FLOOR.y1 - FLOOR.y0);
+/* 场景地面活动区（屏幕比例） */
+const ZONES = {
+  home: { y0: 0.52, y1: 0.90, x0: 0.07, x1: 0.93 },
+  park: { y0: 0.50, y1: 0.90, x0: 0.05, x1: 0.95 },
+};
+let scene = 'home';
+const FLOOR = () => ZONES[scene];
+const depthScale = (y) => { const z = FLOOR(); return 0.55 + 0.72 * (y - z.y0) / (z.y1 - z.y0); };
 
 /* ---------------- 粒子 & 反馈 ---------------- */
 const fxLayer = $('<div id="fx"></div>');
@@ -33,9 +39,11 @@ function particle(x, y, emoji, n = 1) {
 let heartPill;
 function addHearts(n, x, y) {
   state.hearts += n; save();
-  heartPill.querySelector('.hnum').textContent = state.hearts;
-  heartPill.classList.remove('pulse'); void heartPill.offsetWidth;
-  heartPill.classList.add('pulse');
+  if (heartPill) {
+    heartPill.querySelector('.hnum').textContent = state.hearts;
+    heartPill.classList.remove('pulse'); void heartPill.offsetWidth;
+    heartPill.classList.add('pulse');
+  }
   sfx.coin();
   if (x !== undefined) particle(x, y, '💗', Math.min(n, 5));
 }
@@ -43,6 +51,7 @@ function addHearts(n, x, y) {
 /* ---------------- 小精灵 ---------------- */
 let speechEl, speechTimer;
 function elfSay(text, voiceName, dur = 4200) {
+  if (!speechEl) return;
   speechEl.textContent = text;
   speechEl.classList.add('show');
   if (voiceName) voice(voiceName);
@@ -52,25 +61,35 @@ function elfSay(text, voiceName, dur = 4200) {
 
 /* ---------------- 宠物实体 ---------------- */
 class Pet {
-  constructor(breed, name) {
+  constructor(breed, name, opts = {}) {
     this.breed = breed; this.name = name;
-    this.x = 0.5; this.y = 0.78;
-    this.tx = 0.5; this.ty = 0.78;
-    this.mode = 'idle';           // idle | walk | eat | sleep | play | groom
-    this.el = $(`<div class="pet"><div class="rig">${petSVG(breed)}</div><div class="thought"></div><div class="zzz">💤</div></div>`);
+    this.npc = !!opts.npc;
+    this.x = 0.5; this.y = 0.78; this.tx = 0.5; this.ty = 0.78;
+    this.mode = 'idle';
+    this.el = $(`<div class="pet${this.npc ? ' npc' : ''}"><div class="rig">
+      <div class="vf"></div><div class="vs"></div>
+    </div><div class="thought"></div><div class="zzz">💤</div></div>`);
+    this.vf = this.el.querySelector('.vf');
+    this.vs = this.el.querySelector('.vs');
     this.thought = this.el.querySelector('.thought');
+    this.refreshArt(opts.equipped);
     this.speed = 0.0022;
     this.nextThink = 0;
-    this._strokeAcc = 0; this._lastStroke = 0;
-    this.bindTouch();
-    // 随机眨眼
-    setInterval(() => {
+    this._strokeAcc = 0; this._lastStroke = null;
+    if (!this.npc) this.bindTouch();
+    this._blinkT = setInterval(() => {
       if (this.mode !== 'sleep' && !this.el.classList.contains('happy')) {
         this.el.classList.add('blink');
         setTimeout(() => this.el.classList.remove('blink'), 160);
       }
     }, rand(2800, 4500));
   }
+  refreshArt(equipped) {
+    this.equipped = equipped || (this.npc ? [] : state.wardrobe.equipped);
+    this.vf.innerHTML = petSVG(this.breed, this.equipped);
+    this.vs.innerHTML = petSideSVG(this.breed, this.equipped);
+  }
+  destroy() { clearInterval(this._blinkT); this.el.remove(); }
   bindTouch() {
     this.el.addEventListener('pointerdown', (e) => {
       if (this.mode === 'sleep') return;
@@ -78,7 +97,8 @@ class Pet {
       this.bounce(); this.bark();
     });
     this.el.addEventListener('pointermove', (e) => {
-      if (this.mode === 'sleep' || !e.pressure && e.pointerType === 'mouse' && e.buttons === 0) return;
+      if (this.mode === 'sleep') return;
+      if (e.pointerType === 'mouse' && e.buttons === 0) return;
       if (!this._lastStroke) { this._lastStroke = { x: e.clientX, y: e.clientY }; return; }
       const dx = e.clientX - this._lastStroke.x, dy = e.clientY - this._lastStroke.y;
       this._strokeAcc += Math.hypot(dx, dy);
@@ -92,12 +112,7 @@ class Pet {
         this._petStreak = (this._petStreak || 0) + 1;
         if (this._petStreak >= 5) {
           this._petStreak = 0;
-          const anim = Math.random() < 0.5 ? 'jump' : 'roll';
-          this.el.classList.remove('jump', 'roll'); void this.el.offsetWidth;
-          this.el.classList.add(anim);
-          setTimeout(() => this.el.classList.remove(anim), 900);
-          this.bark(); sfx.sparkle();
-          particle(this.x * W, (this.y - 0.22) * H, '💖', 4);
+          this.trick();
           addHearts(3);
           if (Math.random() < 0.5) elfSay('它开心得转圈圈啦！', 'play');
         } else {
@@ -109,11 +124,16 @@ class Pet {
     });
     this.el.addEventListener('pointerup', () => { this._lastStroke = null; });
   }
-  bark() { petVoice(Math.random() < 0.5 ? 'bark' : 'bark2'); }
-  bounce() {
-    this.el.classList.remove('bounce'); void this.el.offsetWidth;
-    this.el.classList.add('bounce');
+  trick() {
+    const anim = Math.random() < 0.5 ? 'jump' : 'roll';
+    this.el.classList.remove('jump', 'roll'); void this.el.offsetWidth;
+    this.el.classList.add(anim);
+    setTimeout(() => this.el.classList.remove(anim), 900);
+    this.bark(); sfx.sparkle();
+    particle(this.x * W, (this.y - 0.22) * H, '💖', 4);
   }
+  bark() { if (!this.npc) petVoice(Math.random() < 0.5 ? 'bark' : 'bark2'); }
+  bounce() { this.el.classList.remove('bounce'); void this.el.offsetWidth; this.el.classList.add('bounce'); }
   happy(ms = 2000) {
     this.el.classList.add('happy');
     clearTimeout(this._happyT);
@@ -126,14 +146,15 @@ class Pet {
     this._thoughtT = setTimeout(() => this.thought.classList.remove('show'), ms);
   }
   goto(x, y, then) {
-    this.tx = clamp(x, FLOOR.x0, FLOOR.x1); this.ty = clamp(y, FLOOR.y0, FLOOR.y1);
+    const z = FLOOR();
+    this.tx = clamp(x, z.x0, z.x1); this.ty = clamp(y, z.y0, z.y1);
     this.mode = 'walk'; this._arrive = then;
-    this.el.classList.add('walking');
+    this.el.classList.add('walking', 'sideview');
     this.el.classList.toggle('face-left', this.tx < this.x);
   }
   setMode(m) {
     this.mode = m;
-    this.el.classList.remove('walking', 'eating', 'sleeping');
+    this.el.classList.remove('walking', 'eating', 'sleeping', 'sideview');
     if (m === 'eat') this.el.classList.add('eating');
     if (m === 'sleep') this.el.classList.add('sleeping');
   }
@@ -159,6 +180,12 @@ class Pet {
     this.el.style.zIndex = Math.round(this.y * 1000);
   }
   autonomy() {
+    const z = FLOOR();
+    if (this.npc || scene === 'park') {
+      if (Math.random() < 0.75) this.goto(rand(z.x0 + 0.05, z.x1 - 0.05), rand(z.y0 + 0.04, z.y1 - 0.02));
+      else this.happy(1500);
+      return;
+    }
     const toys = FURNI.filter(f => f.use === 'play' && state.decor[f.id]);
     const r = Math.random();
     if (toys.length && r < 0.35) {
@@ -174,14 +201,14 @@ class Pet {
       const pos = state.decor.cushion;
       this.goto(pos.x, pos.y - 0.005, () => this.happy(3000));
     } else if (r < 0.8) {
-      this.goto(rand(FLOOR.x0 + 0.05, FLOOR.x1 - 0.05), rand(FLOOR.y0 + 0.03, FLOOR.y1 - 0.02));
+      this.goto(rand(z.x0 + 0.05, z.x1 - 0.05), rand(z.y0 + 0.03, z.y1 - 0.02));
     } else {
       this.happy(1500);
     }
   }
 }
 
-let pet = null;
+let pet = null, friend = null;
 let nightOn = false, bathOpen = false, groomMode = false;
 
 /* ---------------- 家具 ---------------- */
@@ -209,7 +236,6 @@ function spawnFurni(f, world) {
   el.style.touchAction = 'none';
   furniEls[f.id] = el;
   placeFurni(f, el, pos.x, pos.y);
-  // 拖拽摆放
   let drag = null;
   el.addEventListener('pointerdown', (e) => {
     drag = { id: e.pointerId };
@@ -219,10 +245,9 @@ function spawnFurni(f, world) {
   });
   el.addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    const x = clamp(e.clientX / W, 0.06, 0.94);
-    const y = f.zone === 'wall'
-      ? clamp(e.clientY / H, 0.16, 0.5)
-      : clamp(e.clientY / H, FLOOR.y0, FLOOR.y1);
+    const z = ZONES.home;
+    const x = clamp(e.clientX / W, 0.05, 0.95);
+    const y = f.zone === 'wall' ? clamp(e.clientY / H, 0.14, 0.42) : clamp(e.clientY / H, z.y0, z.y1);
     placeFurni(f, el, x, y);
   });
   const drop = () => {
@@ -243,35 +268,45 @@ function placeFurni(f, el, x, y) {
   el.style.zIndex = f.zone === 'wall' ? 5 : Math.round(y * 1000);
 }
 
-/* ---------------- 房间场景 ---------------- */
+/* ---------------- 场景搭建 ---------------- */
 let bowlEl, worldEl;
-function buildRoom() {
-  game.innerHTML = '';
-  game.insertAdjacentHTML('beforeend', roomBgSVG());
-  worldEl = $('<div id="world"></div>');
-  game.appendChild(worldEl);
+function clearScene() {
+  for (const k in furniEls) delete furniEls[k];
+  if (friend) { friend.destroy(); friend = null; }
+  stopParkLife();
+  game.querySelectorAll('#room-bg,#world,#night,#hud,#elf,#speech,#toolbar,.tray,#shop,#bath,#wardrobe').forEach(n => n.remove());
+}
 
-  // 固定的食盆水碗
+function buildHome(entering) {
+  scene = 'home';
+  clearScene();
+  game.insertAdjacentHTML('afterbegin', roomBgSVG());
+  worldEl = $('<div id="world"></div>');
+  game.insertBefore(worldEl, fxLayer.parentNode === game ? fxLayer : null);
+
   bowlEl = $(`<div class="furni" id="bowl">${bowlSVG('food')}</div>`);
   bowlEl.style.cssText = 'width:13vmin;height:7.6vmin;margin-left:-6.5vmin;margin-top:-6.8vmin';
-  placeFixed(bowlEl, 0.17, 0.72);
+  placeFixed(bowlEl, 0.14, 0.62);
   const waterEl = $(`<div class="furni">${bowlSVG('water')}</div>`);
   waterEl.style.cssText = 'width:12vmin;height:7vmin;margin-left:-6vmin;margin-top:-6.3vmin';
-  placeFixed(waterEl, 0.27, 0.76);
-  waterEl.addEventListener('pointerdown', () => { sfx.bubble(); particle(0.27 * W, 0.7 * H, '💧'); });
+  placeFixed(waterEl, 0.23, 0.65);
+  waterEl.addEventListener('pointerdown', () => { sfx.bubble(); particle(0.23 * W, 0.58 * H, '💧'); });
   worldEl.appendChild(bowlEl); worldEl.appendChild(waterEl);
 
-  // 已购家具
   for (const f of FURNI) if (state.decor[f.id]) spawnFurni(f, worldEl);
 
-  // 宠物
-  pet = new Pet(state.pet.breed, state.pet.name);
-  pet.x = pet.tx = 0.55; pet.y = pet.ty = 0.76;
+  if (!pet) {
+    pet = new Pet(state.pet.breed, state.pet.name);
+    pet.x = pet.tx = 0.55; pet.y = pet.ty = 0.74;
+  } else {
+    pet.setMode('idle');
+    pet.x = pet.tx = entering === 'fromPark' ? 0.78 : 0.55;
+    pet.y = pet.ty = 0.66;
+  }
   worldEl.appendChild(pet.el);
 
-  game.appendChild(fxLayer);
+  if (!fxLayer.parentNode) game.appendChild(fxLayer);
 
-  // 夜幕
   const night = $('<div id="night"></div>');
   for (let i = 0; i < 14; i++) {
     const st = $('<div class="star">✦</div>');
@@ -282,56 +317,110 @@ function buildRoom() {
   }
   game.appendChild(night);
 
-  buildUI();
-  startLoop();
+  buildUI('home');
+  // 公园门
+  const door = game.querySelector('#door-park');
+  if (door) door.addEventListener('pointerdown', goPark);
+}
+
+function buildPark() {
+  scene = 'park';
+  clearScene();
+  game.insertAdjacentHTML('afterbegin', parkBgSVG());
+  worldEl = $('<div id="world"></div>');
+  game.insertBefore(worldEl, fxLayer.parentNode === game ? fxLayer : null);
+
+  pet.setMode('idle');
+  pet.x = pet.tx = 0.5; pet.y = pet.ty = 0.72;
+  worldEl.appendChild(pet.el);
+
+  // 朋友狗（随机非同品种 + 随机戴一件头饰）
+  const others = Object.keys(BREEDS).filter(k => k !== pet.breed);
+  const fb = pick(others);
+  friend = new Pet(fb, BREEDS[fb].label, { npc: true, equipped: [pick(['bow', 'strawhat', 'partyhat', 'flower'])] });
+  friend.x = friend.tx = rand(0.15, 0.3); friend.y = friend.ty = rand(0.6, 0.8);
+  const tag = $(`<div class="nametag">${BREEDS[fb].label}</div>`);
+  friend.el.appendChild(tag);
+  worldEl.appendChild(friend.el);
+
+  if (!fxLayer.parentNode) game.appendChild(fxLayer);
+  buildUI('park');
+  startParkLife();
+  elfSay('哇，公园到啦！扔小球给它捡吧，还有蝴蝶可以追！', 'park_go', 5500);
+}
+
+function goPark() {
+  if (nightOn || bathOpen || groomMode) return;
+  sfx.chime();
+  voice('park_out');
+  transition(() => buildPark());
+}
+function goHome() {
+  sfx.pip();
+  transition(() => {
+    buildHome('fromPark');
+    elfSay('到家啦～玩得真开心！', 'park_home');
+  });
+}
+function transition(fn) {
+  const veil = $('<div id="veil"></div>');
+  game.appendChild(veil);
+  requestAnimationFrame(() => requestAnimationFrame(() => veil.classList.add('on')));
+  setTimeout(() => { fn(); veil.classList.remove('on'); setTimeout(() => veil.remove(), 650); }, 620);
 }
 
 function placeFixed(el, x, y) {
   el.style.transform = `translate3d(${x * W}px, ${y * H}px, 0) scale(${depthScale(y)})`;
   el.style.zIndex = Math.round(y * 1000);
-  el.dataset.fx = x; el.dataset.fy = y;
-  addEventListener('resize', () => {
-    el.style.transform = `translate3d(${x * W}px, ${y * H}px, 0) scale(${depthScale(y)})`;
-  });
 }
 
 /* ---------------- UI ---------------- */
-function buildUI() {
-  heartPill = $(`<div id="hud"><div id="heart-pill"><span class="hicon">💗</span><span class="hnum">${state.hearts}</span></div></div>`);
-  game.appendChild(heartPill);
-  heartPill = heartPill.querySelector('#heart-pill');
+function buildUI(kind) {
+  const hud = $(`<div id="hud"><div id="heart-pill"><span class="hicon">💗</span><span class="hnum">${state.hearts}</span></div></div>`);
+  game.appendChild(hud);
+  heartPill = hud.querySelector('#heart-pill');
 
   const elf = $(`<div id="elf">${elfSVG()}</div>`);
   elf.addEventListener('pointerdown', () => {
     sfx.sparkle();
-    elfSay(pick([
+    elfSay(pick(scene === 'park' ? [
+      '扔小球，它会飞快地捡回来哦！',
+      '轻轻点一下蝴蝶试试～',
+      `带${state.pet.name}认识新朋友吧！`,
+    ] : [
       `多陪陪${state.pet.name}，爱心就会越来越多哦！`,
-      '摸摸它的小脑袋，它会很开心的～',
-      '攒够爱心，可以给小窝添新家具呀！',
+      '木门那边就是公园，可以出去遛弯～',
+      '攒够爱心，去商店给它买漂亮衣服呀！',
     ]), pick(['elf1', 'elf2']));
   });
   game.appendChild(elf);
   speechEl = $('<div id="speech"></div>');
   game.appendChild(speechEl);
 
-  const bar = $(`<div id="toolbar">
-    <button class="btn" data-act="feed"><span>🍖</span><i>喂饭</i></button>
-    <button class="btn" data-act="bath"><span>🛁</span><i>洗澡</i></button>
-    <button class="btn" data-act="groom"><span>✨</span><i>梳毛</i></button>
-    <button class="btn" data-act="sleep"><span>🌙</span><i>睡觉</i></button>
-    <button class="btn" data-act="shop"><span>🛒</span><i>商店</i></button>
-  </div>`);
+  const bar = kind === 'park'
+    ? $(`<div id="toolbar">
+        <button class="btn" data-act="home"><span>🏠</span><i>回家</i></button>
+        <button class="btn" data-act="throw"><span>🥎</span><i>扔球</i></button>
+        <button class="btn" data-act="bubble"><span>🫧</span><i>泡泡</i></button>
+      </div>`)
+    : $(`<div id="toolbar">
+        <button class="btn" data-act="feed"><span>🍖</span><i>喂饭</i></button>
+        <button class="btn" data-act="bath"><span>🛁</span><i>洗澡</i></button>
+        <button class="btn" data-act="groom"><span>✨</span><i>梳毛</i></button>
+        <button class="btn" data-act="sleep"><span>🌙</span><i>睡觉</i></button>
+        <button class="btn" data-act="dress"><span>🎀</span><i>换装</i></button>
+        <button class="btn" data-act="shop"><span>🛒</span><i>商店</i></button>
+      </div>`);
   bar.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('.btn');
     if (!b) return;
     sfx.pip();
-    ({ feed: openTray, bath: openBath, groom: startGroom, sleep: toggleNight, shop: openShop })[b.dataset.act]();
+    ({ feed: openTray, bath: openBath, groom: startGroom, sleep: toggleNight,
+       dress: openWardrobe, shop: openShop, home: goHome, throw: throwBall, bubble: blowBubbles })[b.dataset.act]();
   });
   game.appendChild(bar);
 
-  buildTray();
-  buildShop();
-  buildBath();
+  if (kind === 'home') { buildTray(); buildShop(); buildBath(); buildWardrobe(); }
 }
 
 /* ---------------- 吃饭 ---------------- */
@@ -352,7 +441,7 @@ function openTray() {
   trayEl.classList.toggle('show');
 }
 function serveFood(emoji, fromX, fromY) {
-  const bx = 0.17 * W, by = 0.66 * H;
+  const bx = 0.14 * W, by = 0.56 * H;
   const fly = $(`<div class="pfx" style="animation:none;font-size:7vmin">${emoji}</div>`);
   fly.style.left = fromX + 'px'; fly.style.top = fromY + 'px';
   fly.style.transition = 'all .55s cubic-bezier(.4,0,.6,1)';
@@ -365,13 +454,13 @@ function serveFood(emoji, fromX, fromY) {
   setTimeout(() => {
     fly.remove();
     bowlEl.querySelector('.kibble').setAttribute('opacity', '1');
-    pet.goto(0.25, 0.75, () => {
+    pet.goto(0.21, 0.64, () => {
       pet.el.classList.add('face-left');
       pet.setMode('eat');
       let n = 0;
       const munchT = setInterval(() => {
         sfx.munch();
-        particle(0.185 * W, 0.68 * H, pick(['✦', '·']), 1);
+        particle(0.155 * W, 0.57 * H, pick(['✦', '·']), 1);
         if (++n >= 5) {
           clearInterval(munchT);
           pet.setMode('idle');
@@ -379,7 +468,7 @@ function serveFood(emoji, fromX, fromY) {
           state.stats.hunger = 100; save();
           pet.happy(3000); pet.bounce(); pet.bark();
           pet.showThought('😋');
-          addHearts(5, 0.2 * W, 0.62 * H);
+          addHearts(5, 0.18 * W, 0.5 * H);
           elfSay('吃得真香呀～肚子圆滚滚！', 'feed_done');
         }
       }, 550);
@@ -429,7 +518,7 @@ function openBath() {
   const stage = bathEl.querySelector('#bath-stage');
   stage.querySelectorAll('.pet').forEach(p => p.remove());
   stage.querySelectorAll('.st').forEach(s => s.classList.remove('lit'));
-  const p = $(`<div class="pet happy"><div class="rig">${petSVG(state.pet.breed)}</div></div>`);
+  const p = $(`<div class="pet happy"><div class="rig">${petSVG(state.pet.breed, state.wardrobe.equipped)}</div></div>`);
   stage.insertBefore(p, stage.querySelector('svg.tub'));
   pet.el.style.opacity = '0';
   bathEl.classList.add('show');
@@ -486,8 +575,9 @@ function toggleNight() {
     document.getElementById('night').classList.add('on');
     trayEl.classList.remove('show');
     document.getElementById('shop').classList.remove('show');
+    document.getElementById('wardrobe').classList.remove('show');
     const bedPos = state.decor.bed;
-    const go = bedPos ? [bedPos.x, bedPos.y - 0.022] : [0.5, 0.8];
+    const go = bedPos ? [bedPos.x, bedPos.y - 0.022] : [0.5, 0.78];
     pet.goto(go[0], go[1], () => pet.setMode('sleep'));
     sfx.night();
     elfSay('嘘——宝贝要睡觉啦，晚安～', 'sleep', 5000);
@@ -519,7 +609,7 @@ function buildShop() {
       <div class="thumb">${f.svg}</div>
       <div class="info"><div class="name">${f.name}</div><div class="price">💗 ${f.price}</div></div>
     </div>`);
-    item.addEventListener('pointerdown', () => buyFurni(f, item));
+    item.addEventListener('pointerdown', () => buyFurni(f));
     list.appendChild(item);
   }
   shop.querySelector('#shop-close').addEventListener('pointerdown', () => {
@@ -529,7 +619,7 @@ function buildShop() {
   refreshShop();
 }
 function refreshShop() {
-  document.querySelectorAll('.shop-item').forEach(el => {
+  document.querySelectorAll('#shop .shop-item').forEach(el => {
     const f = FURNI.find(x => x.id === el.dataset.id);
     const owned = !!state.decor[f.id];
     el.classList.toggle('owned', owned);
@@ -538,10 +628,11 @@ function refreshShop() {
 }
 function openShop() {
   if (nightOn || bathOpen) return;
+  document.getElementById('wardrobe').classList.remove('show');
   document.getElementById('shop').classList.add('show');
   elfSay('用小爱心换温暖的小家具吧！', 'shop_open');
 }
-function buyFurni(f, item) {
+function buyFurni(f) {
   if (state.decor[f.id]) { wiggleFurni(f.id); sfx.pip(); return; }
   if (state.hearts < f.price) {
     sfx.pip();
@@ -552,7 +643,7 @@ function buyFurni(f, item) {
   }
   state.hearts -= f.price;
   heartPill.querySelector('.hnum').textContent = state.hearts;
-  state.decor[f.id] = f.zone === 'wall' ? { x: 0.62, y: 0.3 } : { x: rand(0.35, 0.7), y: rand(0.68, 0.85) };
+  state.decor[f.id] = f.zone === 'wall' ? { x: 0.55, y: 0.28 } : { x: rand(0.35, 0.7), y: rand(0.6, 0.85) };
   save();
   spawnFurni(f, worldEl);
   refreshShop();
@@ -564,12 +655,185 @@ function buyFurni(f, item) {
   if (f.use === 'play') setTimeout(() => pet.autonomy(), 1200);
 }
 
+/* ---------------- 换装衣柜 ---------------- */
+function buildWardrobe() {
+  const wd = $(`<div id="wardrobe"><h3>漂亮衣柜 <button class="btn" id="wd-close">✕</button></h3><div id="wd-list"></div></div>`);
+  const list = wd.querySelector('#wd-list');
+  for (const c of CLOTHES) {
+    const item = $(`<div class="shop-item wd-item" data-id="${c.id}">
+      <div class="thumb cloth-thumb"><span>${c.icon}</span></div>
+      <div class="info"><div class="name">${c.name}</div><div class="price"></div></div>
+    </div>`);
+    item.addEventListener('pointerdown', () => tapCloth(c));
+    list.appendChild(item);
+  }
+  wd.querySelector('#wd-close').addEventListener('pointerdown', () => {
+    wd.classList.remove('show'); sfx.pip();
+  });
+  game.appendChild(wd);
+  refreshWardrobe();
+}
+function refreshWardrobe() {
+  document.querySelectorAll('#wardrobe .wd-item').forEach(el => {
+    const c = CLOTHES.find(x => x.id === el.dataset.id);
+    const owned = state.wardrobe.owned[c.id];
+    const worn = state.wardrobe.equipped.includes(c.id);
+    el.classList.toggle('owned', owned);
+    el.classList.toggle('worn', worn);
+    el.querySelector('.price').innerHTML = worn ? '穿着呢 💕' : owned ? '点一下穿上' : `💗 ${c.price}`;
+  });
+}
+function tapCloth(c) {
+  const wd = state.wardrobe;
+  if (!wd.owned[c.id]) {
+    if (state.hearts < c.price) {
+      sfx.pip();
+      elfSay('爱心还差一点点，多陪陪它就有啦！', 'no_hearts');
+      return;
+    }
+    state.hearts -= c.price;
+    heartPill.querySelector('.hnum').textContent = state.hearts;
+    wd.owned[c.id] = true;
+    sfx.ding();
+  }
+  const i = wd.equipped.indexOf(c.id);
+  if (i >= 0) {
+    wd.equipped.splice(i, 1);
+    sfx.pip();
+  } else {
+    // 同槽位互斥
+    wd.equipped = wd.equipped.filter(id => (CLOTHES.find(x => x.id === id) || {}).slot !== c.slot);
+    wd.equipped.push(c.id);
+    sfx.sparkle();
+    pet.trick();
+    elfSay(`哇，穿上${c.name}真好看！`, 'dress_on');
+  }
+  save();
+  pet.refreshArt();
+  refreshWardrobe();
+}
+function openWardrobe() {
+  if (nightOn || bathOpen) return;
+  document.getElementById('shop').classList.remove('show');
+  document.getElementById('wardrobe').classList.add('show');
+  elfSay('给它挑一件漂亮衣服吧！', 'dress_open');
+}
+
+/* ---------------- 公园：扔球 / 蝴蝶 / 朋友 ---------------- */
+let parkTimers = [], ballBusy = false, friendCooldown = 0;
+function startParkLife() {
+  // 蝴蝶
+  for (let i = 0; i < 3; i++) spawnButterfly(i);
+  // 朋友互动检测
+  parkTimers.push(setInterval(() => {
+    if (!friend || !pet || scene !== 'park') return;
+    const d = Math.hypot(pet.x - friend.x, pet.y - friend.y);
+    if (d < 0.09 && Date.now() > friendCooldown) {
+      friendCooldown = Date.now() + 12000;
+      pet.trick();
+      friend.el.classList.add('jump');
+      setTimeout(() => friend.el.classList.remove('jump'), 900);
+      addHearts(4, ((pet.x + friend.x) / 2) * W, (pet.y - 0.2) * H);
+      elfSay(`${state.pet.name}交到新朋友啦！`, 'park_friend');
+      sfx.sparkle();
+    }
+  }, 800));
+}
+function stopParkLife() {
+  parkTimers.forEach(clearInterval);
+  parkTimers = [];
+  ballBusy = false;
+  game.querySelectorAll('.butterfly,.fetch-ball,.pbubble').forEach(n => n.remove());
+}
+function spawnButterfly(i) {
+  const bf = $(`<div class="butterfly">${butterflySVG(pick(['#f2a0c4', '#a8d8f0', '#ffd766']))}</div>`);
+  let bx = rand(0.15, 0.85), by = rand(0.3, 0.55), t = rand(0, 99);
+  bf.style.left = '0px'; bf.style.top = '0px';
+  game.appendChild(bf);
+  const mv = setInterval(() => {
+    if (scene !== 'park') return;
+    t += 0.04;
+    bx += Math.sin(t * 0.7 + i * 2) * 0.004;
+    by += Math.cos(t * 1.1 + i) * 0.003;
+    bx = clamp(bx, 0.06, 0.94); by = clamp(by, 0.2, 0.62);
+    bf.style.transform = `translate3d(${bx * W}px, ${by * H}px, 0)`;
+  }, 40);
+  parkTimers.push(mv);
+  bf.addEventListener('pointerdown', () => {
+    sfx.sparkle();
+    particle(bx * W, by * H, '✨', 3);
+    bf.classList.add('flee');
+    pet.goto(clamp(bx, 0.1, 0.9), clamp(by + 0.25, FLOOR().y0, FLOOR().y1), () => {
+      pet.trick();
+      addHearts(2, pet.x * W, (pet.y - 0.2) * H);
+      if (Math.random() < 0.5) elfSay('追到蝴蝶啦，好厉害！', 'park_butterfly');
+    });
+    setTimeout(() => {
+      bf.classList.remove('flee');
+      bx = rand(0.1, 0.9); by = rand(0.25, 0.5);
+    }, 2000);
+  });
+}
+function throwBall() {
+  if (ballBusy || !pet) return;
+  ballBusy = true;
+  sfx.pop(); voice('park_ball');
+  const sx = 0.5, sy = 0.95;
+  const txx = rand(0.2, 0.8), tyy = rand(FLOOR().y0 + 0.06, FLOOR().y1 - 0.04);
+  const ball = $(`<div class="fetch-ball">${fetchBallSVG()}</div>`);
+  game.appendChild(ball);
+  const t0 = performance.now(), dur = 900;
+  const arc = (now) => {
+    const p = Math.min(1, (now - t0) / dur);
+    const x = sx + (txx - sx) * p;
+    const y = sy + (tyy - sy) * p - Math.sin(p * Math.PI) * 0.3;
+    ball.style.transform = `translate3d(${x * W}px, ${y * H}px, 0) rotate(${p * 720}deg)`;
+    if (p < 1) requestAnimationFrame(arc);
+    else {
+      sfx.boing();
+      particle(txx * W, tyy * H, '💨', 2);
+      pet.goto(txx, tyy, () => {
+        ball.remove();
+        pet.showThought('🥎');
+        sfx.pip(); petVoice('bark');
+        pet.goto(rand(0.4, 0.6), rand(0.7, 0.85), () => {
+          pet.trick();
+          addHearts(3, pet.x * W, (pet.y - 0.2) * H);
+          elfSay(pick(['捡回来啦！再扔一次？', `${state.pet.name}跑得好快呀！`]), 'park_fetch');
+          ballBusy = false;
+        });
+      });
+    }
+  };
+  requestAnimationFrame(arc);
+}
+function blowBubbles() {
+  sfx.bubble();
+  for (let i = 0; i < 6; i++) {
+    const b = $('<div class="pbubble"></div>');
+    const size = rand(3, 7);
+    b.style.width = size + 'vmin'; b.style.height = size + 'vmin';
+    b.style.left = rand(0.2, 0.8) * W + 'px';
+    b.style.top = rand(0.5, 0.8) * H + 'px';
+    b.style.animationDelay = (i * 0.15) + 's';
+    b.addEventListener('pointerdown', () => {
+      sfx.bubble(); particle(parseFloat(b.style.left), parseFloat(b.style.top), '💧', 2);
+      b.remove();
+      if (Math.random() < 0.4) addHearts(1);
+    });
+    game.appendChild(b);
+    setTimeout(() => b.remove(), 4200);
+  }
+  if (pet && pet.mode === 'idle') pet.happy(2500);
+}
+
 /* ---------------- 状态衰减 & 提醒 ---------------- */
 setInterval(() => {
   if (!pet || nightOn) return;
   state.stats.hunger = Math.max(0, state.stats.hunger - 0.5);
   state.stats.clean = Math.max(0, state.stats.clean - 0.35);
   save();
+  if (scene !== 'home') return;
   if (state.stats.hunger < 42 && Math.random() < 0.5) {
     pet.showThought('🍖');
     if (Math.random() < 0.4) elfSay('咕噜咕噜～小肚子在叫啦，我们喂点好吃的吧！', 'hungry');
@@ -584,7 +848,10 @@ let lastT = 0;
 function startLoop() {
   const loop = (t) => {
     const dt = Math.min(t - lastT, 50); lastT = t;
-    try { if (pet) pet.tick(dt, t); } catch (e) { console.error('tick error', e); }
+    try {
+      if (pet) pet.tick(dt, t);
+      if (friend) friend.tick(dt, t);
+    } catch (e) { console.error('tick error', e); }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
@@ -605,7 +872,7 @@ function buildAdopt() {
   let chosen = null;
   for (const key of Object.keys(BREEDS)) {
     const b = $(`<div class="basket" data-b="${key}">
-      <div class="pit"><div class="bart">${FURNI[0].svg}</div><div class="pet"><div class="rig">${petSVG(key)}</div></div></div>
+      <div class="pit"><div class="bart">${FURNI[0].svg}</div><div class="pet"><div class="rig"><div class="vf">${petSVG(key)}</div></div></div></div>
       <div class="bname">${BREEDS[key].label}</div>
     </div>`);
     b.addEventListener('pointerdown', () => {
@@ -635,7 +902,7 @@ function buildAdopt() {
     sc.classList.add('gone');
     setTimeout(() => {
       sc.remove();
-      buildRoom();
+      buildHome();
       setTimeout(() => {
         elfSay(`这就是你们温暖的小家～摸摸${state.pet.name}，它会很开心哦！`, 'home_first', 6000);
       }, 800);
@@ -649,9 +916,9 @@ function buildAdopt() {
 document.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
 const hasSave = load();
 document.getElementById('boot').classList.add('gone');
-setTimeout(() => document.getElementById('boot').remove(), 700);
+setTimeout(() => { const b = document.getElementById('boot'); if (b) b.remove(); }, 700);
 if (hasSave) {
-  buildRoom();
+  buildHome();
   setTimeout(() => {
     elfSay(`欢迎回来！${state.pet.name}好想你呀～`, null, 4000);
     pet.el.classList.add('jump'); pet.bark();
@@ -660,9 +927,11 @@ if (hasSave) {
 } else {
   buildAdopt();
 }
+startLoop();
 
-/* 调试直达（仅测试用，正常游玩无影响） */
+/* 调试直达（仅测试用） */
 const dbg = new URLSearchParams(location.search).get('auto');
 if (dbg && hasSave) setTimeout(() => {
-  ({ night: toggleNight, bath: openBath, shop: openShop, feed: openTray })[dbg]?.();
+  ({ night: toggleNight, bath: openBath, shop: openShop, feed: openTray,
+     park: goPark, dress: openWardrobe })[dbg]?.();
 }, 1500);
