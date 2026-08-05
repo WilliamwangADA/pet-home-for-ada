@@ -1,8 +1,8 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.3.0';
+const VER = 'pet-home-v0.4.0';
 const CORE = [
   './', 'index.html', 'css/main.css',
-  'js/main.js', 'js/art.js', 'js/audio.js', 'js/save.js',
+  'js/main.js', 'js/art.js', 'js/audio.js', 'js/save.js', 'js/shade.js',
   'manifest.webmanifest',
 ];
 const VOICES = ['welcome','pick','adopt_done','home_first','hungry','dirty','feed_done',

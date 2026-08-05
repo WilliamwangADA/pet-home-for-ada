@@ -9,7 +9,12 @@
 
 /* ---------- 场景层级 ---------- */
 #room-bg{position:absolute;inset:0;width:100%;height:100%}
-#world{position:absolute;inset:0}
+/* world 只做承载层，本身不吃点击，否则会盖住背景里的门等可点元素 */
+#world{position:absolute;inset:0;pointer-events:none}
+#world .pet,#world .furni{pointer-events:auto}
+#door-park{cursor:pointer}
+#door-park .door-hint{transform-box:fill-box;transform-origin:50% 50%;animation:doorpulse 2.4s ease-in-out infinite}
+@keyframes doorpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
 #fx{position:absolute;inset:0;pointer-events:none;z-index:1200}
 #night{position:absolute;inset:0;background:#1a1440;opacity:0;pointer-events:none;
   transition:opacity 1.2s;z-index:1100}
@@ -125,6 +130,8 @@
 #toolbar .btn[data-act=groom]{background:linear-gradient(#fff8e0,#ffecb3)}
 #toolbar .btn[data-act=sleep]{background:linear-gradient(#eceafd,#d5d2f5)}
 #toolbar .btn[data-act=shop]{background:linear-gradient(#ffeef3,#ffd6e2)}
+#toolbar .btn[data-act=park]{background:linear-gradient(#e8f8e2,#c8ecbc)}
+#toolbar .btn[data-act=home]{background:linear-gradient(#fff2e2,#ffdfc0)}
 
 /* ---------- 小精灵 ---------- */
 #elf{position:absolute;top:max(2vmin,env(safe-area-inset-top));right:3vmin;width:13vmin;

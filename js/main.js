@@ -443,13 +443,15 @@ function buildUI(kind) {
         <button class="btn" data-act="dress"><span>🎀</span><i>换装</i></button>
         <button class="btn" data-act="adopt"><span>🏡</span><i>领养</i></button>
         <button class="btn" data-act="shop"><span>🛒</span><i>商店</i></button>
+        <button class="btn go-park" data-act="park"><span>🌳</span><i>去公园</i></button>
       </div>`);
   bar.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('.btn');
     if (!b) return;
     sfx.pip();
     ({ feed: openTray, bath: openBath, groom: startGroom, sleep: toggleNight, dress: openWardrobe,
-       adopt: openAdoptHouse, shop: openShop, home: goHome, throw: throwBall, bubble: blowBubbles })[b.dataset.act]();
+       adopt: openAdoptHouse, shop: openShop, park: goPark, home: goHome,
+       throw: throwBall, bubble: blowBubbles })[b.dataset.act]();
   });
   game.appendChild(bar);
 
