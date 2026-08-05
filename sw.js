@@ -1,5 +1,5 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.2.0';
+const VER = 'pet-home-v0.3.0';
 const CORE = [
   './', 'index.html', 'css/main.css',
   'js/main.js', 'js/art.js', 'js/audio.js', 'js/save.js',
@@ -9,7 +9,7 @@ const VOICES = ['welcome','pick','adopt_done','home_first','hungry','dirty','fee
   'bath_start','bath_done','brush_start','brush_done','stroke1','sleep','wake',
   'shop_open','placed','no_hearts','play','elf1','elf2','bark','bark2',
   'park_out','park_go','park_home','park_ball','park_fetch','park_friend',
-  'park_butterfly','dress_open','dress_on']
+  'park_butterfly','dress_open','dress_on','adopt_open','adopt_new','buddies','meow','meow2']
   .map(n => `assets/audio/${n}.mp3`);
 
 self.addEventListener('install', (e) => {

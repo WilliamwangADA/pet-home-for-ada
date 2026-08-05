@@ -2,30 +2,57 @@
 
 export const BREEDS = {
   shiba: {
-    label: '柴柴', main: '#f09f51', light: '#ffc180', deep: '#d9853c',
+    kind: 'dog', label: '柴柴', main: '#f09f51', light: '#ffc180', deep: '#d9853c',
     cream: '#fff4e3', creamHi: '#fffdf6', earIn: '#c1753f',
     dark: '#5b3a29', collar: '#f25d7e', collarHi: '#ff8ba6', blush: '#ffb0ba',
     ear: 'point', tail: 'curl', brows: '#fff'
   },
   corgi: {
-    label: '小柯基', main: '#f7b06b', light: '#ffd096', deep: '#e0914b',
+    kind: 'dog', label: '小柯基', main: '#f7b06b', light: '#ffd096', deep: '#e0914b',
     cream: '#fff8ee', creamHi: '#ffffff', earIn: '#e78a5a',
     dark: '#59372a', collar: '#5ba8de', collarHi: '#8cc6ec', blush: '#ffb9c0',
     ear: 'big', tail: 'nub', brows: '#fff', blaze: true
   },
   golden: {
-    label: '小金毛', main: '#eec379', light: '#fadfa2', deep: '#d3a253',
+    kind: 'dog', label: '小金毛', main: '#eec379', light: '#fadfa2', deep: '#d3a253',
     cream: '#fbf0d7', creamHi: '#fffcf2', earIn: '#d8a856',
     dark: '#5d4126', collar: '#7fc8a9', collarHi: '#a8dfc7', blush: '#ffc0b8',
     ear: 'floppy', tail: 'feather', brows: '#e8c887'
   },
   bichon: {
-    label: '云朵犬', main: '#fdf9f2', light: '#ffffff', deep: '#eadbc8',
+    kind: 'dog', label: '云朵犬', main: '#fdf9f2', light: '#ffffff', deep: '#eadbc8',
     cream: '#fffdf8', creamHi: '#ffffff', earIn: '#f0dfc9',
     dark: '#6b5138', collar: '#b28fd9', collarHi: '#cfb3ea', blush: '#ffb3bd',
     ear: 'puff', tail: 'puff', brows: null, outline: '#e5d3ba'
+  },
+  /* ---- 小猫 ---- */
+  calico: {
+    kind: 'cat', label: '三花猫', main: '#fff6ea', light: '#ffffff', deep: '#e8d8c4',
+    cream: '#fffdf8', creamHi: '#ffffff', earIn: '#ffc0cb',
+    dark: '#5b4636', collar: '#f25d7e', collarHi: '#ff8ba6', blush: '#ffb0ba',
+    outline: '#e7d6c0', patch: [['#f0a04b', 'head-l'], ['#5b4636', 'head-r'], ['#f0a04b', 'back']]
+  },
+  orange: {
+    kind: 'cat', label: '小橘猫', main: '#f7ab5c', light: '#ffca8e', deep: '#dd8f42',
+    cream: '#fff2df', creamHi: '#fffbf3', earIn: '#f2a0a8',
+    dark: '#5b3a29', collar: '#7fc8a9', collarHi: '#a8dfc7', blush: '#ffb0ba',
+    stripes: '#e08a3c'
+  },
+  gray: {
+    kind: 'cat', label: '灰灰猫', main: '#b9c4d2', light: '#dbe3ec', deep: '#95a3b5',
+    cream: '#f3f6fa', creamHi: '#ffffff', earIn: '#f2b3c0',
+    dark: '#4a5361', collar: '#5ba8de', collarHi: '#8cc6ec', blush: '#ffb9c8',
+    stripes: '#9aa8b9'
+  },
+  tuxedo: {
+    kind: 'cat', label: '奶牛猫', main: '#3d3a44', light: '#575263', deep: '#2b2932',
+    cream: '#fffdf8', creamHi: '#ffffff', earIn: '#f2a0b4',
+    dark: '#22212a', collar: '#ffd166', collarHi: '#ffe49a', blush: '#e58a9c',
+    mask: true
   }
 };
+
+export const isCat = (breed) => BREEDS[breed] && BREEDS[breed].kind === 'cat';
 
 /* ---------- 换装 ---------- */
 export const CLOTHES = [
@@ -153,8 +180,151 @@ function defsFor(k, b) {
   </defs>`;
 }
 
+/* ================= 小猫：正面 ================= */
+function catFrontSVG(breed, equipped) {
+  const b = BREEDS[breed], k = breed;
+  const st = b.outline ? `stroke="${b.outline}" stroke-width="3.5"` : `stroke="${b.deep}" stroke-width="2.5" stroke-opacity=".4"`;
+  const stripes = b.stripes ? `
+    <path d="M84,40 Q100,34 116,40" stroke="${b.stripes}" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M74,52 Q100,44 126,52" stroke="${b.stripes}" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <path d="M100,30 L100,46" stroke="${b.stripes}" stroke-width="5" stroke-linecap="round"/>
+    <path d="M34,120 Q28,134 32,148" stroke="${b.stripes}" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M166,120 Q172,134 168,148" stroke="${b.stripes}" stroke-width="7" fill="none" stroke-linecap="round"/>` : '';
+  const patches = b.patch ? `
+    <path d="M100,26 C74,26 52,50 44,84 Q62,66 100,62 Z" fill="#f0a04b" opacity=".95"/>
+    <path d="M126,30 C142,42 152,62 156,86 Q140,68 118,64 Z" fill="#5b4636" opacity=".9"/>
+    <ellipse cx="152" cy="130" rx="20" ry="30" fill="#f0a04b" opacity=".85" transform="rotate(-12 152 130)"/>` : '';
+  const mask = b.mask ? `
+    <path d="M100,72 C82,72 68,86 66,108 C64,140 78,196 100,196 C122,196 136,140 134,108 C132,86 118,72 100,72 Z" fill="${b.cream}"/>
+    <ellipse cx="100" cy="104" rx="26" ry="20" fill="${b.cream}"/>` : '';
+  return `<svg viewBox="0 0 200 212">
+  ${defsFor(k, b)}
+  <g class="flip">
+  <ellipse cx="100" cy="201" rx="56" ry="8" fill="rgba(120,70,30,.16)"/>
+  <g class="p-body" data-part>
+    ${clothesLayer(equipped, 'front', 'back')}
+    <g class="p-tail" data-part>
+      <path d="M158,150 Q198,140 196,96 Q194,66 172,62" stroke="url(#g-${k}-body)" stroke-width="17"
+        fill="none" stroke-linecap="round"/>
+      ${b.stripes ? `<path d="M192,120 L200,118 M190,98 L198,94 M182,76 L188,70" stroke="${b.stripes}" stroke-width="6" stroke-linecap="round"/>` : ''}
+      <circle cx="173" cy="62" r="9" fill="${b.cream}"/>
+    </g>
+    <g class="p-head" data-part>
+      <g class="p-earL" data-part>
+        <path d="M40,74 L44,14 Q46,4 56,10 L92,44 Q64,50 40,74 Z" fill="url(#g-${k}-body)" ${st}/>
+        <path d="M52,62 L54,28 Q55,22 61,26 L80,46 Q64,50 52,62 Z" fill="${b.earIn}"/>
+      </g>
+      <g class="p-earR" data-part>
+        <path d="M160,74 L156,14 Q154,4 144,10 L108,44 Q136,50 160,74 Z" fill="url(#g-${k}-body)" ${st}/>
+        <path d="M148,62 L146,28 Q145,22 139,26 L120,46 Q136,50 148,62 Z" fill="${b.earIn}"/>
+      </g>
+    </g>
+    <path d="M100,26 C56,26 32,70 30,122 C28,172 58,200 100,200 C142,200 172,172 170,122 C168,70 144,26 100,26 Z"
+      fill="url(#g-${k}-body)" ${st}/>
+    ${patches}
+    <path d="M100,30 C72,30 50,56 46,90 Q74,72 100,72 Q126,72 154,90 C150,56 128,30 100,30 Z" fill="${b.light}" opacity=".3"/>
+    ${mask}
+    <path d="M100,88 C78,88 66,104 64,130 C62,166 78,196 100,196 C122,196 138,166 136,130 C134,104 122,88 100,88 Z"
+      fill="url(#g-${k}-cream)" opacity="${b.mask ? 0 : 1}"/>
+    ${stripes}
+    <ellipse cx="32" cy="146" rx="10" ry="17" fill="url(#g-${k}-body)" ${st} transform="rotate(12 32 146)"/>
+    <ellipse cx="168" cy="146" rx="10" ry="17" fill="url(#g-${k}-body)" ${st} transform="rotate(-12 168 146)"/>
+    <path d="M44,166 Q100,188 156,166 L156,178 Q100,200 44,178 Z" fill="url(#g-${k}-collar)"/>
+    <circle cx="100" cy="186" r="8.5" fill="#ffd766"/><circle cx="97" cy="183" r="3" fill="#fff2c0"/>
+    <line x1="100" y1="182" x2="100" y2="189" stroke="#c99b1f" stroke-width="2"/>
+    <ellipse cx="74" cy="197" rx="14" ry="8" fill="url(#g-${k}-cream)" ${st}/>
+    <ellipse cx="126" cy="197" rx="14" ry="8" fill="url(#g-${k}-cream)" ${st}/>
+    <path d="M70,194 v5 M78,194 v5 M122,194 v5 M130,194 v5" stroke="rgba(120,80,40,.22)" stroke-width="2" stroke-linecap="round"/>
+    <g class="p-face" data-part>
+      <g class="p-eyes-open" data-part>
+        <ellipse cx="74" cy="96" rx="9" ry="10.5" fill="#5fbf8f"/>
+        <ellipse cx="74" cy="96" rx="3" ry="9" fill="${b.dark}"/>
+        <circle cx="70.5" cy="91" r="2.8" fill="#fff"/>
+        <ellipse cx="126" cy="96" rx="9" ry="10.5" fill="#5fbf8f"/>
+        <ellipse cx="126" cy="96" rx="3" ry="9" fill="${b.dark}"/>
+        <circle cx="122.5" cy="91" r="2.8" fill="#fff"/>
+      </g>
+      <g class="p-eyes-happy" data-part fill="none" stroke="${b.dark}" stroke-width="5.5" stroke-linecap="round">
+        <path d="M64,98 Q74,87 84,98"/><path d="M116,98 Q126,87 136,98"/>
+      </g>
+      <g class="p-eyes-sleep" data-part fill="none" stroke="${b.dark}" stroke-width="4.5" stroke-linecap="round">
+        <path d="M66,96 Q74,102 82,96"/><path d="M118,96 Q126,102 134,96"/>
+      </g>
+      <ellipse cx="52" cy="114" rx="9" ry="5.5" fill="${b.blush}" opacity=".8"/>
+      <ellipse cx="148" cy="114" rx="9" ry="5.5" fill="${b.blush}" opacity=".8"/>
+      <path d="M92,112 L108,112 Q108,120 100,122 Q92,120 92,112 Z" fill="#f0899e"/>
+      <path d="M100,122 L100,127 M87,131 Q94,137 100,127 Q106,137 113,131" fill="none" stroke="${b.dark}" stroke-width="3.2" stroke-linecap="round"/>
+      <g stroke="${b.dark}" stroke-width="2.4" stroke-linecap="round" opacity=".55">
+        <path d="M60,112 L28,104 M60,120 L26,120 M140,112 L172,104 M140,120 L174,120"/>
+      </g>
+      <path class="p-tongue" data-part d="M94,130 L106,130 Q106,141 100,141 Q94,141 94,130 Z" fill="#ff8fa3"/>
+      ${clothesLayer(equipped, 'front', 'fore')}
+    </g>
+  </g></g></svg>`;
+}
+
+/* ================= 小猫：侧面 ================= */
+function catSideSVG(breed, equipped) {
+  const b = BREEDS[breed], k = breed + '-s';
+  const st = b.outline ? `stroke="${b.outline}" stroke-width="3.5"` : `stroke="${b.deep}" stroke-width="2.5" stroke-opacity=".4"`;
+  const leg = (x, cls) => `<g class="sleg ${cls}" data-part>
+      <path d="M${x - 8},120 L${x - 8},158 Q${x - 8},167 ${x},167 Q${x + 8},167 ${x + 8},158 L${x + 8},120 Z" fill="url(#g-${k}-body)" ${st}/>
+      <ellipse cx="${x}" cy="163" rx="9.5" ry="5.5" fill="url(#g-${k}-cream)"/></g>`;
+  return `<svg viewBox="0 0 240 200">
+  ${defsFor(k, b)}
+  <g class="flip">
+  <ellipse cx="120" cy="172" rx="70" ry="8" fill="rgba(120,70,30,.16)"/>
+  <g class="p-body" data-part>
+    ${clothesLayer(equipped, 'side', 'back')}
+    <g class="p-tail" data-part>
+      <path d="M46,110 Q10,104 12,64 Q14,36 36,34" stroke="url(#g-${k}-body)" stroke-width="15" fill="none" stroke-linecap="round"/>
+      <circle cx="37" cy="34" r="8" fill="${b.cream}"/>
+    </g>
+    ${leg(90, 'legB2')}${leg(170, 'legF2')}
+    <path d="M120,30 C78,28 46,54 44,96 C42,130 68,150 118,150 C168,152 200,130 198,90 C196,54 166,32 120,30 Z"
+      fill="url(#g-${k}-body)" ${st}/>
+    <path d="M120,34 C90,34 62,48 52,76 Q100,56 148,62 Q180,68 194,88 C188,54 160,36 120,34 Z" fill="${b.light}" opacity=".3"/>
+    ${b.stripes ? `<g stroke="${b.stripes}" stroke-width="7" stroke-linecap="round" fill="none">
+      <path d="M78,52 Q84,70 78,88"/><path d="M100,46 Q106,66 100,86"/><path d="M122,44 Q128,64 122,84"/></g>` : ''}
+    ${b.patch ? `<ellipse cx="96" cy="70" rx="26" ry="22" fill="#f0a04b" opacity=".9"/>
+      <ellipse cx="150" cy="60" rx="20" ry="16" fill="#5b4636" opacity=".85"/>` : ''}
+    ${leg(104, 'legB1')}${leg(184, 'legF1')}
+    <path d="M120,94 C106,94 98,106 98,120 C98,142 108,150 122,150 C138,150 146,138 144,118 C142,102 134,94 120,94 Z"
+      fill="url(#g-${k}-cream)" opacity=".85"/>
+    <g class="p-earL" data-part>
+      <path d="M150,36 L152,0 Q153,-8 161,-2 L182,24 Q164,26 150,36 Z" fill="url(#g-${k}-body)" ${st}/>
+      <path d="M157,32 L158,10 Q159,6 163,9 L175,24 Q164,26 157,32 Z" fill="${b.earIn}"/>
+    </g>
+    <g class="p-face" data-part>
+      <path d="M194,74 Q216,72 220,88 Q222,99 210,102 Q196,105 188,96 Z" fill="url(#g-${k}-cream)"/>
+      <path d="M212,84 L221,84 Q223,88 220,91 L212,90 Z" fill="#f0899e"/>
+      <path d="M212,94 Q205,100 198,94" fill="none" stroke="${b.dark}" stroke-width="3" stroke-linecap="round"/>
+      <g class="p-eyes-open" data-part>
+        <ellipse cx="182" cy="68" rx="8" ry="9.5" fill="#5fbf8f"/>
+        <ellipse cx="182" cy="68" rx="2.6" ry="8" fill="${b.dark}"/>
+        <circle cx="179" cy="63" r="2.4" fill="#fff"/>
+      </g>
+      <g class="p-eyes-happy" data-part fill="none" stroke="${b.dark}" stroke-width="5" stroke-linecap="round">
+        <path d="M173,70 Q182,60 191,70"/>
+      </g>
+      <g class="p-eyes-sleep" data-part fill="none" stroke="${b.dark}" stroke-width="4.5" stroke-linecap="round">
+        <path d="M174,69 Q182,75 190,69"/>
+      </g>
+      <ellipse cx="188" cy="86" rx="7" ry="4.5" fill="${b.blush}" opacity=".8"/>
+      <g stroke="${b.dark}" stroke-width="2.2" stroke-linecap="round" opacity=".5">
+        <path d="M204,88 L232,80 M204,94 L234,96"/>
+      </g>
+      <path class="p-tongue" data-part d="M200,98 L211,98 Q211,109 205,109 Q200,109 200,98 Z" fill="#ff8fa3"/>
+    </g>
+    <path d="M144,104 Q168,122 192,100 L194,112 Q168,136 142,116 Z" fill="url(#g-${k}-collar)"/>
+    <circle cx="170" cy="130" r="6.5" fill="#ffd766"/><circle cx="167.8" cy="127.8" r="2.2" fill="#fff2c0"/>
+    ${clothesLayer(equipped, 'side', 'fore')}
+  </g></g></svg>`;
+}
+
 /* ---------- 正面视图 ---------- */
 export function petSVG(breed, equipped) {
+  if (isCat(breed)) return catFrontSVG(breed, equipped);
   const b = BREEDS[breed], k = breed;
   const st = b.outline ? `stroke="${b.outline}" stroke-width="3.5"` : `stroke="${b.deep}" stroke-width="2.5" stroke-opacity=".4"`;
   return `<svg viewBox="0 0 200 212">
@@ -230,6 +400,7 @@ function tailS(k, b) {
       <circle cx="17" cy="40" r="9" fill="${b.cream}"/></g>`;
 }
 export function petSideSVG(breed, equipped) {
+  if (isCat(breed)) return catSideSVG(breed, equipped);
   const b = BREEDS[breed], k = breed + '-s';   // 独立渐变命名空间：display:none 里的同名 defs 会让引用失效
   const st = b.outline ? `stroke="${b.outline}" stroke-width="3.5"` : `stroke="${b.deep}" stroke-width="2.5" stroke-opacity=".4"`;
   const leg = (x, cls) => `<g class="sleg ${cls}" data-part>
@@ -269,8 +440,8 @@ export function petSideSVG(breed, equipped) {
       </g>
       <ellipse cx="182" cy="84" rx="8" ry="5" fill="${b.blush}" opacity=".8"/>
     </g>
-    <path d="M142,60 Q150,104 142,146 L128,146 Q120,102 128,58 Z" fill="url(#g-${k}-collar)"/>
-    <circle cx="136" cy="140" r="7.5" fill="#ffd766"/><circle cx="133.5" cy="137.5" r="2.6" fill="#fff2c0"/>
+    <path d="M148,106 Q172,124 197,102 L199,114 Q172,138 146,118 Z" fill="url(#g-${k}-collar)"/>
+    <circle cx="174" cy="132" r="7" fill="#ffd766"/><circle cx="171.5" cy="129.5" r="2.4" fill="#fff2c0"/>
     ${clothesLayer(equipped, 'side', 'fore')}
   </g></g></svg>`;
 }
