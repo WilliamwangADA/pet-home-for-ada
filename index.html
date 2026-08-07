@@ -24,15 +24,19 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#ffe8d1;
 .paw{font-size:15vmin;animation:pawbob 1s ease-in-out infinite}
 @keyframes pawbob{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-2vmin) rotate(8deg)}}
 #boot p{color:#a5623a;font-size:3vmin;margin-top:2vmin;letter-spacing:.3em}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 </style>
 <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
 <div id="boot"><div class="paw">🐾</div><p>小窝开门啦</p></div>
+<canvas id="stage"></canvas>
 <div id="game"></div>
 <script type="module" src="js/main.js"></script>
 <script>
 window.addEventListener('error',function(e){
+  /* 把首个错误写进 title，方便无头环境 --dump-dom 定位（对孩子不可见） */
+  if(!window.__err){window.__err=e.message;document.title='ERR: '+e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno;}
   var b=document.getElementById('boot');
   if(b&&!b.classList.contains('gone')){
     b.innerHTML='<p style="font-size:2.5vmin">哎呀，小窝的门卡住了，请再试一次</p>'+
