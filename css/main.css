@@ -51,9 +51,13 @@ html,body{margin:0;height:100%;overflow:hidden;background:#cfe3ee;
 
 /* ---------- 纸片角色 ---------- */
 .actor{position:absolute;will-change:transform;pointer-events:none}
-.actor .art{position:absolute;left:50%;bottom:0;width:100%;height:auto;
-  transform-origin:50% 100%;will-change:transform;
+/* .rig 用 left:-50% 做水平居中（而不是 transform:translateX），
+   因为 draw() 每帧会整体覆盖 .rig 的 transform */
+.actor .rig{position:absolute;left:-50%;bottom:0;width:100%;
+  transform-origin:50% 100%;will-change:transform}
+.actor .art{display:block;width:100%;height:auto;
   filter:drop-shadow(0 .3vmin .5vmin rgba(80,55,30,.22))}
+.actor .art[hidden]{display:none}
 .actor .shadow{position:absolute;left:50%;bottom:0;width:72%;aspect-ratio:5/1;
   background:radial-gradient(ellipse,rgba(96,74,44,.42),rgba(96,74,44,0) 70%);
   border-radius:50%;transform:translate(-50%,50%)}

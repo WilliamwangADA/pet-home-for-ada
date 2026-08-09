@@ -1,5 +1,5 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.6.0';
+const VER = 'pet-home-v0.6.1';
 const CORE = [
   './', 'index.html', 'css/main.css',
   'js/main.js', 'js/stage.js', 'js/pet.js', 'js/data.js', 'js/audio.js', 'js/save.js',
@@ -30,6 +30,12 @@ self.addEventListener('activate', (e) => {
     const keys = await caches.keys();
     await Promise.all(keys.filter(k => k !== VER).map(k => caches.delete(k)));
     await self.clients.claim();
+    /* 关键：核心文件走 stale-while-revalidate，页面首屏拿到的是【旧】缓存。
+       版本更新时旧 main.js 会去 import 已经删掉的模块 → 整个游戏起不来
+       （用户遇到的"院子去不了"就是这么来的）。所以新 SW 接管后，
+       主动通知页面重载一次，让它换上新代码。 */
+    const cs = await self.clients.matchAll({ type: 'window' });
+    for (const c of cs) c.postMessage({ type: 'sw-updated', ver: VER });
     // 后台预缓存配音，失败不影响游戏
     const c = await caches.open(VER);
     // 先缓存美术（首屏最需要），再缓存配音

@@ -107,37 +107,61 @@ export class Stage {
   }
 }
 
-/* ---------------- 纸片角色 ---------------- */
+/* ---------------- 纸片角色 ----------------
+   结构：.actor > .rig > img.art ×N
+   把动画 transform 放在 .rig 上，图片本身只负责显示哪一张。
+   多张图一次建好、靠 hidden 切换，而不是改 img.src ——
+   改 src 会触发重新解码，解码那几帧图是空的或只画了一半，
+   看起来就像"移动时身体中间透明了"。 */
 export class Actor {
-  constructor(stage, { w = 22, anchor = 0.5 } = {}) {
+  constructor(stage, { w = 22 } = {}) {
     this.stage = stage;
-    this.u = 0.5; this.v = 0.6;        // 地面坐标
-    this.w = w;                         // 宽度（vmin）
-    this.anchor = anchor;
+    this.u = 0.5; this.v = 0.6;
+    this.w = w;
     this.flip = false;
-    this.bob = 0; this.bobAmp = 0;      // 上下浮动（呼吸/跳跃）
-    this.tilt = 0;                      // 左右摇摆
-    this.squash = 1;                    // 挤压拉伸
+    this.bob = 0;
+    this.tilt = 0;
+    this.squash = 1;
     this.extraY = 0;
+    this.zOverride = null;
     this.el = document.createElement('div');
     this.el.className = 'actor';
-    this.el.innerHTML = `<div class="shadow"></div><img class="art" alt="">`;
-    this.img = this.el.querySelector('.art');
+    this.el.innerHTML = `<div class="shadow"></div><div class="rig"></div>`;
+    this.rig = this.el.querySelector('.rig');
     this.shadow = this.el.querySelector('.shadow');
+    this.imgs = new Map();
+    this.img = null;
+  }
+
+  /** 预建一批贴图（同时预解码），之后 setArt 只切显示 */
+  addArt(file) {
+    if (this.imgs.has(file)) return this.imgs.get(file);
+    const im = document.createElement('img');
+    im.className = 'art';
+    im.alt = '';
+    im.decoding = 'sync';
+    im.src = ART + file;
+    im.hidden = true;
+    this.rig.appendChild(im);
+    this.imgs.set(file, im);
+    return im;
   }
   setArt(file) {
-    const src = ART + file;
-    if (this._src === src) return;
-    this._src = src;
-    this.img.src = src;
+    if (this._cur === file) return;
+    const im = this.addArt(file);
+    if (this.img) this.img.hidden = true;
+    im.hidden = false;
+    this.img = im;
+    this._cur = file;
   }
+
   draw() {
-    if (this.wall) {                       // 挂在墙上的（画框等）不站地面
+    if (this.wall) {
       this.el.style.width = this.w + 'vmin';
       this.el.style.left = this.u * 100 + '%';
       this.el.style.top = this.wallY * 100 + '%';
       this.el.style.zIndex = 900;
-      this.img.style.transform = `translate(-50%, 0) rotate(${this.tilt}deg)`;
+      this.rig.style.transform = `rotate(${this.tilt}deg)`;
       this.shadow.style.display = 'none';
       return;
     }
@@ -146,12 +170,11 @@ export class Actor {
     this.el.style.width = this.w * s + 'vmin';
     this.el.style.left = g.x * 100 + '%';
     this.el.style.top = g.y * 100 + '%';
-    this.el.style.zIndex = Math.round(1000 + this.v * 1000);
-    /* .actor 高度为 0，.art 用 bottom:0 已经把脚底对齐到地面线，
-       再 translateY(-100%) 会让整只宠物凭空浮起一个身高。 */
-    this.img.style.transform =
-      `translate(-50%, ${-this.bob - this.extraY}px) `
-      + `rotate(${this.tilt}deg) scale(${this.flip ? -1 : 1}, 1) scaleY(${this.squash})`;
+    this.el.style.zIndex = this.zOverride != null
+      ? this.zOverride : Math.round(1000 + this.v * 1000);
+    this.rig.style.transform =
+      `translateY(${-this.bob - this.extraY}px) `
+      + `rotate(${this.tilt}deg) scale(${this.flip ? -1 : 1}, ${this.squash})`;
     this.shadow.style.transform =
       `translate(-50%,50%) scale(${1 - Math.min(0.45, (this.bob + this.extraY) / 90)})`;
     this.shadow.style.opacity = 0.34 - Math.min(0.2, (this.bob + this.extraY) / 300);

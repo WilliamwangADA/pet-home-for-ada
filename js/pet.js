@@ -28,6 +28,8 @@ export class Pet extends Actor {
     this.el.classList.add('pet');
     if (this.npc) this.el.classList.add('npc');
 
+    // 5 张姿态图一次全建好并预解码，之后切姿态零延迟、不会闪空
+    for (const k of Object.keys(POSE_ART)) this.addArt(`pets/${breed}_${POSE_ART[k]}.png`);
     this.mode = 'idle';
     this.setPose('idle');
 
@@ -37,7 +39,8 @@ export class Pet extends Actor {
     this.mood = 0;
     this.happyUntil = 0;
     this.jumpV = 0; this.jumpY = 0;
-    this.nextThink = performance.now() / 1000 + rand(2, 5);
+    this.now = opts.now || 0;                 // 跟主循环共用一个累加时钟
+    this.nextThink = this.now + rand(2, 5);
     this.strokeAcc = 0; this.petStreak = 0;
     this.buddyCd = 0;
 
@@ -100,10 +103,13 @@ export class Pet extends Actor {
     this.running = run;
     this.setMode('walk');
   }
-  stop() { this.tu = this.tv = null; this.onArrive = null; if (this.mode === 'walk') this.setMode('idle'); }
+  stop() {
+    this.tu = this.tv = null; this.onArrive = null; this.eating = false;
+    if (this.mode === 'walk') this.setMode('idle');
+  }
   jump(h = 1) { if (this.jumpY <= 0.5) this.jumpV = 620 * h; this.happy(1.6); }
   happy(sec = 2) {
-    this.happyUntil = performance.now() / 1000 + sec;
+    this.happyUntil = this.now + sec;
     if (this.mode === 'idle') this.setPose('happy');
   }
   think(emoji, ms = 2600) {
@@ -115,6 +121,10 @@ export class Pet extends Actor {
   faceTo(u) { this.flip = u < this.u; }
 
   update(dt, time) {
+    this.now = time;
+    /* 在浴缸里就不走动，只轻轻浮 */
+    if (this.inTub) { this.tu = this.tv = null; }
+
     /* 移动 */
     if (this.tu !== null) {
       const du = this.tu - this.u, dv = this.tv - this.v;
@@ -158,8 +168,16 @@ export class Pet extends Actor {
     /* 开心：多一点弹性 */
     const joy = isHappy ? Math.abs(Math.sin(time * 7)) * 5 : 0;
 
-    this.bob = stepBob + this.jumpY + joy;
+    this.bob = stepBob + this.jumpY + joy
+      + (this.inTub ? Math.sin(time * 2.4) * 3 : 0);
     this.tilt = sway + (isHappy ? Math.sin(time * 6.5) * 2.2 : Math.sin(time * 0.8 + this.phase) * 0.5);
+
+    /* 吃饭：身体前倾 + 有节奏地低头啃，让"在盆里吃"读得出来 */
+    if (this.eating) {
+      const dip = (Math.sin(time * 7) * 0.5 + 0.5);
+      this.tilt = (this.flip ? -1 : 1) * (10 + dip * 7);
+      this.bob = -dip * 5;
+    }
 
     /* 落地挤压 */
     if (this.squashT > 0) {

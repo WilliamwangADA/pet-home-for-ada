@@ -11,13 +11,15 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+const QS0 = new URLSearchParams(location.search);
+const SPD = +(QS0.get('speed') || 0);
 const MAX_PETS = 4;
 const ADOPT_PRICE = [0, 40, 70, 110];
 
 /* 场景固定点位（地面坐标 u 横向 / v 纵深，v=1 最近） */
 const SPOT = {
-  bowl: { u: 0.11, v: 0.72 },
-  water: { u: 0.22, v: 0.62 },
+  bowl: { u: 0.20, v: 0.74 },
+  water: { u: 0.33, v: 0.66 },
   tub: { u: 0.74, v: 0.62 },
 };
 
@@ -96,8 +98,8 @@ function elfTip() {
 
 /* ---------------- 宠物 ---------------- */
 function newPet(breed, name, opts = {}) {
-  const p = new Pet(stage, breed, name, opts);
-  p.speed = isCat(breed) ? 0.28 : 0.24;
+  const p = new Pet(stage, breed, name, { ...opts, now: simClock });
+  p.speed = (isCat(breed) ? 0.28 : 0.24) * (SPD || 1);
   if (!p.npc) bindPet(p);
   return p;
 }
@@ -183,7 +185,7 @@ function autonomy(p) {
   if (cushion && r < 0.62) {
     p.goto(cushion.u, cushion.v, () => {
       p.setMode('sit'); p.happy(3.4);
-      setTimeout(() => { if (p.mode === 'sit') p.setMode('idle'); }, 5200);
+      later(5.2, () => { if (p.mode === 'sit') p.setMode('idle'); });
     });
   } else if (r < 0.9) p.goto(rand(0.1, 0.9), rand(0.15, 0.95));
   else p.happy(1.6);
@@ -270,6 +272,8 @@ function clearScene() {
   furniList = [];
   bowlA = waterA = tubA = null;
   bathOpen = false; groomMode = false;
+  if (groomTimer) { cancelTimer(groomTimer); groomTimer = null; }
+  clearTimers();          // 上个场景挂起的回调不能打到新场景上
   stopParkLife();
   game.querySelectorAll('#hud,#toolbar,.tray,.drawer,#elf,#speech,#bath-meter').forEach(n => n.remove());
 }
@@ -336,7 +340,9 @@ function buildPark() {
 }
 
 function goPark() {
-  if (nightOn || bathOpen || groomMode) return;
+  cancelGroom(true);
+  if (nightOn) return;
+  if (bathOpen) { finishBath(); return; }          // 洗到一半要出门，先收尾，别把人锁死
   sfx.chime(); voice('park_out');
   transition(() => buildPark());
 }
@@ -450,7 +456,8 @@ function buildTray() {
   });
   game.appendChild(trayEl);
 }
-function openTray() { if (nightOn || bathOpen) return; trayEl.classList.toggle('show'); }
+function openTray() {
+  cancelGroom(true); if (nightOn || bathOpen) return; trayEl.classList.toggle('show'); }
 function serveFood(emoji, fx, fy) {
   const r = bowlA.el.getBoundingClientRect();
   const fly = $(`<div class="pfx" style="animation:none;font-size:7vmin">${emoji}</div>`);
@@ -463,34 +470,40 @@ function serveFood(emoji, fx, fy) {
     fly.style.transform = 'scale(.5)';
   }));
   sfx.pop();
-  setTimeout(() => {
+  later(0.6, () => {
     fly.remove();
     bowlA.el.style.opacity = '1';
+    bowlA.el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }],
+      { duration: 380, easing: 'ease-out' });
     let done = 0;
+    /* 围着盆站一圈：左右各一只、前面一只，都紧贴盆边（0.055 u ≈ 半个身位），
+       之前偏移 0.10 u 又不转身，看起来像各吃各的。 */
+    const SEATS = [[-0.085, 0.035], [0.085, 0.035], [-0.065, -0.075], [0.065, -0.075]];
     pets.forEach((p, i) => {
-      p.goto(clamp(SPOT.bowl.u + 0.10 + i * 0.07, 0.06, 0.9),
-        clamp(SPOT.bowl.v + (i % 2) * 0.06, 0.1, 0.95), () => {
-          p.faceTo(SPOT.bowl.u);
-          p.setMode('eat');
-          let n = 0;
-          const t = setInterval(() => {
-            sfx.munch();
-            particleAt(bowlA, pick(['✦', '·']), 1);
-            if (++n >= 5) {
-              clearInterval(t);
-              p.setMode('idle');
-              p.happy(3); p.jump(0.6); barkOf(p); p.think('😋');
-              if (++done === pets.length) {
-                bowlA.el.style.opacity = '.55';
-                state.stats.hunger = 100; save();
-                addHearts(5 * pets.length, bowlA);
-                elfSay(pets.length > 1 ? '大家都吃饱啦，肚子圆滚滚！' : '吃得真香呀～肚子圆滚滚！', 'feed_done');
-              }
+      const [du, dv] = SEATS[i % SEATS.length];
+      p.eating = true;                  // 从出发就免疫推挤，否则挤在盆边互相顶
+      p.goto(clamp(SPOT.bowl.u + du, 0.05, 0.95), clamp(SPOT.bowl.v + dv, 0.08, 0.98), () => {
+        p.faceTo(SPOT.bowl.u);            // 转身面向食盆
+        p._bites = 6;                     // 低头啃的动画在 pet.update 里
+        p.setMode('eat');
+        repeat(0.52, 6, () => {
+          sfx.munch();
+          particleAt(bowlA, pick(['✦', '·', '✧']), 1);
+          if (--p._bites <= 0) {
+            p.eating = false;
+            p.setMode('idle');
+            p.happy(3); p.jump(0.6); barkOf(p); p.think('😋');
+            if (++done === pets.length) {
+              bowlA.el.style.opacity = '.55';
+              state.stats.hunger = 100; save();
+              addHearts(5 * pets.length, bowlA);
+              elfSay(pets.length > 1 ? '大家都吃饱啦，肚子圆滚滚！' : '吃得真香呀～肚子圆滚滚！', 'feed_done');
             }
-          }, 550);
-        }, true);
+          }
+        });
+      }, true);
     });
-  }, 600);
+  });
 }
 
 /* ---------------- 洗澡 ---------------- */
@@ -500,33 +513,55 @@ function buildBathMeter() {
   game.appendChild(bathMeter);
 }
 function openBath() {
-  if (nightOn || bathOpen || sceneName !== 'home') return;
+  if (nightOn || sceneName !== 'home') return;
+  if (bathOpen) { finishBath(); return; }          // 再点一次 = 冲干净出来
+  if (tubA) return;                                 // 正在走过去，别重复放缸
+  cancelGroom(true);
   const p = APet();
   bathScrub = 0;
-  tubA = new Actor(stage, { w: 30 });
+  tubA = new Actor(stage, { w: 34 });
   tubA.setArt('props/tub.png');
   tubA.u = SPOT.tub.u; tubA.v = SPOT.tub.v;
   stage.add(tubA);
-  tubA.el.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1)' }],
+  tubA.el.animate([{ opacity: 0, transform: 'translateY(3vmin)' }, { opacity: 1, transform: 'none' }],
     { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
   sfx.splash();
   elfSay(`哗啦啦～带${p.name}泡个澡，在它身上搓出好多泡泡吧！`, 'bath_start', 5200);
-  for (const o of pets) if (o !== p) { o.stop(); o.goto(clamp(SPOT.tub.u - 0.32, 0.06, 0.9), rand(0.6, 0.9)); }
-  p.goto(SPOT.tub.u, SPOT.tub.v, () => {
-    bathOpen = true;
-    p.inTub = true;
-    p.extraY = 22;
-    p.el.style.zIndex = 2200;
-    bathMeter.classList.add('show');
-    bathMeter.querySelectorAll('.st').forEach(s => s.classList.remove('lit'));
+  // 其它宠物让开，别挡着缸
+  for (const o of pets) if (o !== p) { o.stop(); o.goto(clamp(SPOT.tub.u - 0.34, 0.06, 0.9), rand(0.7, 0.95)); }
+
+  // 先走到缸边
+  p.goto(clamp(SPOT.tub.u - 0.13, 0.05, 0.95), SPOT.tub.v, () => {
+    p.jump(0.9);                                   // 跳进去
+    later(0.26, () => enterTub(p));
   }, true);
 }
+
+/* 让宠物"在缸里"：画在浴缸【后面】+ 抬高到泡沫线，
+   于是缸的前壁自然遮住下半身，只露出上半身和脑袋。 */
+function enterTub(p) {
+  if (!tubA) return;
+  bathOpen = true;
+  p.inTub = true;
+  p.stop();
+  p.u = SPOT.tub.u; p.v = SPOT.tub.v;
+  p.setMode('idle');
+  const th = tubA.el.getBoundingClientRect().height || innerHeight * 0.22;
+  p.extraY = th * 0.42;                            // 抬到泡沫高度
+  p.zOverride = 1000 + Math.round(SPOT.tub.v * 1000) - 6;   // 压在浴缸后面
+  tubA.zOverride = 1000 + Math.round(SPOT.tub.v * 1000);
+  sfx.splash();
+  particleAt(tubA, '💦', 4);
+  bathMeter.classList.add('show');
+  bathMeter.querySelectorAll('.st').forEach(s => s.classList.remove('lit'));
+}
+
 function scrubProgress() {
-  bathScrub += 22;
+  bathScrub += 34;
   const p = APet();
   if (Math.random() < 0.8) spawnBubble(p);
   sfx.bubble();
-  const lit = Math.min(3, Math.floor(bathScrub / 240));
+  const lit = Math.min(3, Math.floor(bathScrub / 170));
   bathMeter.querySelectorAll('.st').forEach((s, i) => s.classList.toggle('lit', i < lit));
   p.happy(1.6);
   if (lit >= 3) finishBath();
@@ -550,31 +585,47 @@ function finishBath() {
   const p = APet();
   sfx.splash(); sfx.sparkle();
   bathMeter.classList.remove('show');
-  setTimeout(() => {
-    for (let i = 0; i < 10; i++) spawnBubble(p);
+  later(0.7, () => {
+    for (let i = 0; i < 12; i++) spawnBubble(p);
+    // 跳出浴缸
     p.extraY = 0; p.inTub = false;
-    p.el.style.zIndex = '';
+    p.zOverride = null;
+    p.u = clamp(SPOT.tub.u - 0.15, 0.06, 0.94);
+    p.jump(1.1);
     if (tubA) {
       const t = tubA; tubA = null;
-      t.el.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.7)' }], { duration: 380 })
+      t.el.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(2vmin)' }], { duration: 400 })
         .onfinish = () => stage.remove(t);
     }
     state.stats.clean = 100; save();
     p.happy(3.2); barkOf(p); p.think('✨');
     addHearts(8, p);
     elfSay('哇，香喷喷亮晶晶！', 'bath_done');
-    p.goto(rand(0.35, 0.65), rand(0.55, 0.85));
-  }, 700);
+    later(0.7, () => p.goto(rand(0.35, 0.65), rand(0.6, 0.9)));
+  });
 }
 
 /* ---------------- 梳毛 ---------------- */
-let groomCount = 0;
+let groomCount = 0, groomTimer = null;
 function startGroom() {
-  if (nightOn || bathOpen || groomMode) return;
+  if (nightOn || bathOpen || sceneName !== 'home') return;
+  if (groomMode) { cancelGroom(); return; }        // 再点一次 = 收工
   groomMode = true; groomCount = 0;
   const p = APet();
   p.stop(); p.setMode('sit');
   elfSay(`在${activePet().name}身上轻轻划一划，给它做个美容～`, 'brush_start', 5000);
+  /* 不加超时的话，孩子点了梳毛又跑去干别的，groomMode 会一直是 true，
+     之后洗澡、去院子全被挡住 —— 这是"院子去不了"的元凶之一。 */
+  if (groomTimer) cancelTimer(groomTimer);
+  groomTimer = later(20, () => { if (groomMode) cancelGroom(true); });
+}
+function cancelGroom(quiet) {
+  if (!groomMode) return;
+  groomMode = false;
+  if (groomTimer) cancelTimer(groomTimer); groomTimer = null;
+  const p = APet();
+  if (p && p.mode === 'sit') p.setMode('idle');
+  if (!quiet) sfx.pip();
 }
 function groomProgress(x, y) {
   groomCount++;
@@ -582,7 +633,7 @@ function groomProgress(x, y) {
   particle(x, y, pick(['✨', '🫧']));
   APet().happy(1.6);
   if (groomCount >= 10) {
-    groomMode = false;
+    cancelGroom(true);
     sfx.sparkle();
     const p = APet();
     p.setMode('idle'); p.jump(0.8); barkOf(p);
@@ -594,6 +645,7 @@ function groomProgress(x, y) {
 /* ---------------- 睡觉 ---------------- */
 let nightTimer;
 function toggleNight() {
+  cancelGroom(true);
   if (bathOpen || sceneName !== 'home') return;
   if (!nightOn) {
     nightOn = true;
@@ -608,8 +660,8 @@ function toggleNight() {
     });
     sfx.night();
     elfSay('嘘——宝贝们要睡觉啦，晚安～', 'sleep', 5000);
-    nightTimer = setTimeout(morning, 9000);
-  } else { clearTimeout(nightTimer); morning(); }
+    nightTimer = later(9, morning);
+  } else { if (nightTimer) cancelTimer(nightTimer); morning(); }
 }
 function morning() {
   if (!nightOn) return;
@@ -653,6 +705,7 @@ function closeDrawers(except) {
   });
 }
 function openShop() {
+  cancelGroom(true);
   if (nightOn || bathOpen) return;
   closeDrawers('shop');
   document.getElementById('shop').classList.add('show');
@@ -732,6 +785,7 @@ function tapCloth(c) {
   refreshWardrobe();
 }
 function openWardrobe() {
+  cancelGroom(true);
   if (nightOn || bathOpen) return;
   closeDrawers('wardrobe');
   refreshWardrobe();
@@ -767,6 +821,7 @@ function refreshAdoptHouse() {
   }
 }
 function openAdoptHouse() {
+  cancelGroom(true);
   if (nightOn || bathOpen || sceneName !== 'home') return;
   closeDrawers('adopt-house');
   refreshAdoptHouse();
@@ -939,11 +994,38 @@ setInterval(() => {
 }, 12000);
 
 /* ---------------- 主循环 ---------------- */
+/* 由主循环驱动的延时/重复，替代 setTimeout/setInterval：
+   ① 后台被节流时不会把玩法流程卡在半路
+   ② 自检可以手动步进验证 */
+let timers = [];
+function later(sec, fn) { const t = { at: simClock + sec, fn }; timers.push(t); return t; }
+function repeat(sec, times, fn) {
+  const t = { at: simClock + sec, every: sec, left: times, fn };
+  timers.push(t); return t;
+}
+function cancelTimer(t) { timers = timers.filter(x => x !== t); }
+function clearTimers() { timers = []; }
+function runTimers() {
+  if (!timers.length) return;
+  const due = timers.filter(t => simClock >= t.at);
+  for (const t of due) {
+    if (t.every) {
+      t.left--; t.at = simClock + t.every;
+      if (t.left <= 0) timers = timers.filter(x => x !== t);
+      try { t.fn(); } catch (e) { console.error('timer', e); }
+    } else {
+      timers = timers.filter(x => x !== t);
+      try { t.fn(); } catch (e) { console.error('timer', e); }
+    }
+  }
+}
 function separate() {
   const all = friend ? pets.concat(friend) : pets;
   for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
     const a = all[i], b = all[j];
-    if (a.mode === 'sleep' || b.mode === 'sleep' || a.inTub || b.inTub) continue;
+    // 正在吃饭/洗澡/睡觉的不参与推挤，否则会被从食盆、浴缸边推走
+    if (a.mode === 'sleep' || b.mode === 'sleep' || a.inTub || b.inTub
+      || a.eating || b.eating) continue;
     let du = b.u - a.u, dv = (b.v - a.v) * 0.6;
     let d = Math.hypot(du, dv);
     if (d >= 0.13) continue;
@@ -956,43 +1038,52 @@ function separate() {
   }
 }
 
-let lastT = 0;
+/* 一帧的全部推进逻辑。抽出来是为了能被调试器手动步进 ——
+   无头浏览器里 rAF 几乎不触发，行为逻辑没法靠截图验证。 */
+function step(dt, time) {
+  runTimers();
+  for (const p of pets) {
+    p.update(dt, time);
+    if (p.tu === null && p.mode === 'idle' && time > p.nextThink && !nightOn && !bathOpen && !groomMode) {
+      p.nextThink = time + rand(3.5, 8);
+      autonomy(p);
+    }
+  }
+  if (friend) {
+    friend.update(dt, time);
+    if (friend.tu === null && time > friend.nextThink) { friend.nextThink = time + rand(3, 7); autonomy(friend); }
+  }
+  for (const p of nurseryPets) p.update(dt, time);
+  if (pets.length > 1 || friend) separate();
+
+  for (let i = 0; i < butterflies.length; i++) {
+    const b = butterflies[i];
+    b.t += dt;
+    if (b.flee > 0) b.flee -= dt;
+    const rr = b.flee > 0 ? 0.22 : 0.11;
+    b.u = clamp(b.home.u + Math.sin(b.t * 0.8 + i * 2) * rr, 0.06, 0.94);
+    b.v = clamp(b.home.v + Math.cos(b.t * 0.6 + i) * rr * 0.5, 0.1, 0.6);
+    b.bob = Math.sin(b.t * 3.2 + i) * 12;
+    b.tilt = Math.sin(b.t * 2 + i) * 10;
+  }
+  for (const b of parkBubbles) {
+    b.bob += b.rise * dt;
+    b.u += Math.sin(time + b.rise) * 0.0006;
+  }
+  stage.update(dt);
+}
+
+/* 全局只用这一个累加时钟。以前主循环用 rAF 的绝对时间戳、
+   宠物内部又用 performance.now()，三个时钟对不上，
+   导致定时器乱跳、宠物一直卡在"开心"姿态。 */
+let lastT = 0, simClock = 0;
 function loop(t) {
   requestAnimationFrame(loop);
   const time = t / 1000;
   const dt = Math.min(0.05, time - lastT) || 0.016;
   lastT = time;
-  try {
-    for (const p of pets) {
-      p.update(dt, time);
-      if (p.tu === null && p.mode === 'idle' && time > p.nextThink && !nightOn && !bathOpen && !groomMode) {
-        p.nextThink = time + rand(3.5, 8);
-        autonomy(p);
-      }
-    }
-    if (friend) {
-      friend.update(dt, time);
-      if (friend.tu === null && time > friend.nextThink) { friend.nextThink = time + rand(3, 7); autonomy(friend); }
-    }
-    for (const p of nurseryPets) p.update(dt, time);
-    if (pets.length > 1 || friend) separate();
-
-    for (let i = 0; i < butterflies.length; i++) {
-      const b = butterflies[i];
-      b.t += dt;
-      if (b.flee > 0) b.flee -= dt;
-      const rr = b.flee > 0 ? 0.22 : 0.11;
-      b.u = clamp(b.home.u + Math.sin(b.t * 0.8 + i * 2) * rr, 0.06, 0.94);
-      b.v = clamp(b.home.v + Math.cos(b.t * 0.6 + i) * rr * 0.5, 0.1, 0.6);
-      b.bob = Math.sin(b.t * 3.2 + i) * 12;
-      b.tilt = Math.sin(b.t * 2 + i) * 10;
-    }
-    for (const b of parkBubbles) {
-      b.bob += b.rise * dt;
-      b.u += Math.sin(time + b.rise) * 0.0006;
-    }
-    stage.update(dt);
-  } catch (e) { console.error('loop', e); }
+  simClock += dt;
+  try { step(dt, simClock); } catch (e) { console.error('loop', e); }
 }
 
 /* ---------------- 首次领养 ---------------- */
@@ -1068,9 +1159,50 @@ if (hasSave) setTimeout(() => {
   const p = APet(); if (p) { p.jump(1); barkOf(p); }
 }, 900);
 
+/* ---- 调试钩子（正常游玩不带这些参数）----
+   ?click=park   模拟点一下工具栏按钮，用来验证按钮链路
+   ?walk=1       让宠物一直来回走，方便截运动中的帧
+   ?probe=1      把关键状态写进 title，配合 --dump-dom 读 */
+const QS = new URLSearchParams(location.search);
+if (QS.get('walk') === '1') setInterval(() => {
+  for (const p of pets) if (p.tu === null) p.goto(rand(0.15, 0.85), rand(0.2, 0.9), null, false);
+}, 1200);
+if (QS.get('click')) setTimeout(() => {
+  const b = document.querySelector(`#toolbar .btn[data-act="${QS.get('click')}"]`);
+  if (!b) { document.title = 'PROBE no-button'; return; }
+  b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+}, 1600);
+if (QS.get('probe')) setInterval(() => {
+  const a = APet();
+  document.title = `PROBE scene=${sceneName} pets=${pets.length} friend=${!!friend} `
+    + `night=${nightOn} bath=${bathOpen} groom=${groomMode} tub=${!!tubA} `
+    + `p0=${a ? `${a.mode}/${a.u.toFixed(2)},${a.v.toFixed(2)}` + (a.tu !== null ? `→${a.tu.toFixed(2)},${a.tv.toFixed(2)}` : '') : '-'} `
+    + `inTub=${a && !!a.inTub} `
+    + `bg=${(stage.bgEl.getAttribute('src') || '').split('/').pop()} err=${window.__err || '-'}`;
+}, 700);
+
+
+/* ?steps=N 手动推进 N 帧（每帧 1/30 秒），不依赖 rAF */
+if (QS.get('steps')) setTimeout(() => {
+  const n = +QS.get('steps');
+  for (let i = 0; i < n; i++) { simClock += 1 / 30; try { step(1 / 30, simClock); } catch (e) { window.__err = e.message; } }
+}, 2600);
+
 const dbg = new URLSearchParams(location.search).get('auto');
 if (dbg && hasSave) setTimeout(() => ({
   night: toggleNight, bath: openBath, shop: openShop, feed: openTray,
   park: goPark, dress: openWardrobe, adopt: openAdoptHouse,
 })[dbg]?.(), 1500);
-window.__game = { pets: () => pets, goPark, toggleNight, openBath, state, stage };
+/* 自检用出口（selftest.html 驱动） */
+window.__game = {
+  get pets() { return pets; },
+  get friend() { return friend; },
+  get furni() { return furniList; },
+  get scene() { return sceneName; },
+  get flags() { return { night: nightOn, bath: bathOpen, groom: groomMode, tub: !!tubA }; },
+  state, stage, step,
+  goPark, goHome, toggleNight, openBath, startGroom, openTray, serveFood,
+  openShop, buyFurni, openWardrobe, tapCloth, openAdoptHouse, adoptNew,
+  throwBall, blowBubbles, setActive, scrubProgress, finishBath,
+  run(n = 120, dt = 1 / 30) { for (let i = 0; i < n; i++) { simClock += dt; step(dt, simClock); } },
+};

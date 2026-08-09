@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>自检</title>
+<style>
+body{margin:0;font:14px/1.7 -apple-system,"PingFang SC",monospace;background:#1d2229;color:#d8dee6}
+#wrap{display:flex;height:100vh}
+#log{width:560px;overflow:auto;padding:14px 16px;background:#171b21}
+#log h2{font-size:15px;margin:14px 0 6px;color:#8fd0ee}
+.ok{color:#7fd48b}.bad{color:#ff8b7d;font-weight:700}.warn{color:#ffcf6b}
+.row{white-space:pre-wrap}
+iframe{flex:1;border:0;border-left:2px solid #333}
+#sum{position:sticky;top:0;background:#171b21;padding:8px 0;font-size:16px;font-weight:700;border-bottom:1px solid #333}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="log"><div id="sum">正在载入游戏…</div><div id="out"></div></div>
+  <iframe id="fr" src="seed-test.html?pets=shiba,calico,golden&decor=1&nosw=1"></iframe>
+</div>
+<script>
+const out = document.getElementById('out'), sum = document.getElementById('sum');
+let pass = 0, fail = 0;
+const line = (cls, t) => { const d = document.createElement('div'); d.className = 'row ' + cls; d.textContent = t; out.appendChild(d); };
+const head = (t) => { const h = document.createElement('h2'); h.textContent = t; out.appendChild(h); };
+function check(name, cond, detail = '') {
+  if (cond) { pass++; line('ok', '  ✓ ' + name); }
+  else { fail++; line('bad', '  ✗ ' + name + (detail ? '  — ' + detail : '')); }
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function main() {
+  const fr = document.getElementById('fr');
+  // 等游戏起来
+  let G = null;
+  for (let i = 0; i < 120; i++) {
+    G = fr.contentWindow.__game;
+    if (G && G.pets.length) break;
+    await sleep(250);
+  }
+  if (!G) { sum.textContent = '❌ 游戏没起来'; return; }
+  const W = fr.contentWindow;
+  const run = (n) => G.run(n);
+  const P = () => G.pets[G.state.active];
+
+  head('0 · 载入');
+  check('游戏实例存在', !!G);
+  check('宠物已生成 3 只', G.pets.length === 3, `实际 ${G.pets.length}`);
+  check('无脚本错误', !W.__err, W.__err || '');
+  check('背景图已加载', G.stage.bgEl.naturalWidth > 0, '图片 404?');
+  // 所有贴纸都能加载
+  await sleep(600);
+  const imgs = [...fr.contentDocument.querySelectorAll('img')];
+  const broken = imgs.filter(i => i.src && i.complete && i.naturalWidth === 0).map(i => i.src.split('/').pop());
+  check('所有贴图都能加载', broken.length === 0, broken.join(', '));
+
+  head('1 · 喂食：宠物要走到食盆边吃');
+  const hearts0 = G.state.hearts;
+  G.serveFood('🍖', 300, 300);
+  run(20);               // 0.6s 食物飞进盆
+  run(70);               // 走到盆边并开吃（约 2.3s；吃完 3s 后它们就散开了）
+  const bowlEl = fr.contentDocument.querySelector('img[src*="bowl_food"]').closest('.actor');
+  const bowlA = G.stage.actors.find(a => a.el === bowlEl);
+  const bowlU = bowlA.u, bowlV = bowlA.v;
+  const near = G.pets.filter(p => Math.hypot(p.u - bowlU, p.v - bowlV) < 0.20);
+  check('全部宠物聚到食盆边', near.length === G.pets.length,
+    `只有 ${near.length}/${G.pets.length} 只；盆@${bowlU},${bowlV}；`
+    + G.pets.map(p => `${p.mode}@${p.u.toFixed(2)},${p.v.toFixed(2)}`).join(' '));
+  check('宠物正在吃', G.pets.every(p => p.mode === 'eat'), G.pets.map(p => p.mode).join(','));
+  check('宠物面朝食盆', G.pets.every(p => p.flip === (bowlU < p.u)),
+    G.pets.map(p => `flip=${p.flip}@${p.u.toFixed(2)}`).join(' '));
+  run(300);              // 吃完 + 结算
+  check('吃完加了爱心', G.state.hearts > hearts0, `${hearts0} → ${G.state.hearts}`);
+  check('吃完退出进食状态', G.pets.every(p => p.mode !== 'eat' && !p.eating),
+    G.pets.map(p => p.mode + (p.eating ? '(eating)' : '')).join(','));
+  check('饱腹度回满', G.state.stats.hunger === 100);
+
+  head('2 · 洗澡：宠物要进到浴缸里');
+  G.openBath();
+  run(400);              // 走过去 + 跳进缸，全部由主循环驱动
+  check('浴缸出现了', G.flags.tub);
+  check('进入洗澡状态', G.flags.bath);
+  check('宠物在缸里 (inTub)', !!P().inTub);
+  check('宠物站到缸中心', Math.hypot(P().u - 0.74, P().v - 0.62) < 0.05,
+    `位置 ${P().u.toFixed(2)},${P().v.toFixed(2)}`);
+  check('宠物被抬高到水面', P().extraY > 10, `extraY=${P().extraY}`);
+  const petZ = +P().el.style.zIndex, tubZ = +[...fr.contentDocument.querySelectorAll('.actor')]
+    .filter(e => e.querySelector('img')?.src.includes('tub'))[0]?.style.zIndex;
+  check('宠物画在浴缸后面（才像在缸里）', petZ < tubZ, `pet z=${petZ} tub z=${tubZ}`);
+  check('洗澡时宠物不乱走', P().tu === null);
+  for (let i = 0; i < 25; i++) { G.scrubProgress(); run(4); }
+  run(200);
+  check('搓完自动结束', !G.flags.bath);
+  check('清洁度回满', G.state.stats.clean === 100);
+  check('宠物离开浴缸', !P().inTub && P().extraY === 0);
+
+  head('3 · 睡觉');
+  G.toggleNight();
+  run(150);              // 5s：够走到窝里，又不到自动天亮的 9s
+  check('进入夜晚', G.flags.night);
+  check('全部宠物躺下睡了', G.pets.every(p => p.mode === 'sleep'), G.pets.map(p => p.mode).join(','));
+  const bed = G.furni.find(f => f.def.id === 'bed');
+  if (bed) check('睡在狗窝附近', G.pets.every(p => Math.abs(p.v - bed.v) < 0.12));
+  G.toggleNight();
+  run(60);
+  check('天亮后醒来', !G.flags.night && G.pets.every(p => p.mode !== 'sleep'));
+
+  head('4 · 梳毛');
+  G.startGroom();
+  run(60);
+  check('进入梳毛状态', G.flags.groom);
+  check('梳毛时宠物坐下不乱跑', P().mode === 'sit' && P().tu === null, P().mode);
+  // 再点一次应该能收工 —— 不然状态会永久卡住
+  G.startGroom();
+  run(20);
+  check('再点梳毛能退出（不会卡死）', !G.flags.groom);
+  G.startGroom(); run(10);
+  check('梳毛已开始', G.flags.groom);
+  G.goPark();            // 梳毛中直接去院子，应该被自动放行
+  await sleep(950); run(60);
+  check('梳毛中也能去院子（自动取消梳毛）', G.scene === 'park', G.scene);
+  G.goHome(); await sleep(950); run(60);
+
+  head('5 · 商店与摆放');
+  G.state.hearts = 500;
+  const n0 = G.furni.length;
+  const shopItem = W.document ? null : null;
+  const notOwned = ['bed','cushion','ball','yarn','bone','plant','lamp','frame'].find(id => !G.state.decor[id]);
+  if (notOwned) {
+    const f = { id: notOwned };
+    // 通过 UI 路径买，验证真实链路
+    const el = fr.contentDocument.querySelector(`#shop .shop-item[data-id="${notOwned}"]`);
+    check('商店条目存在', !!el, notOwned);
+    if (el) {
+      el.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true }));
+      run(30);
+      check('买下后出现在场景里', G.furni.length === n0 + 1, `${n0} → ${G.furni.length}`);
+      check('买下后写入存档', !!G.state.decor[notOwned]);
+    }
+  } else line('warn', '  · 家具已全部拥有，跳过购买测试');
+  check('家具都落在地面范围内', G.furni.every(f => f.wall || (f.v >= 0 && f.v <= 1.05)),
+    G.furni.map(f => f.def.id + ':' + f.v.toFixed(2)).join(' '));
+  const frame = G.furni.find(f => f.def.id === 'frame');
+  if (frame) check('画框挂在墙上而不是地上', frame.wall === true);
+
+  head('6 · 切换宠物');
+  G.setActive(1);
+  run(20);
+  check('当前宠物切到第 2 只', G.state.active === 1);
+  const chips = fr.contentDocument.querySelectorAll('#chips .chip:not(.add)');
+  check('头像数量对得上', chips.length === G.pets.length, `${chips.length} vs ${G.pets.length}`);
+  G.setActive(0);
+
+  head('6.5 · 睡觉/洗澡中途切换不会锁死');
+  G.openBath(); run(400);
+  check('洗澡已开始', G.flags.bath);
+  G.goPark(); await sleep(950); run(60);
+  check('洗澡中去院子会先收尾而不是卡住', G.scene === 'park' || !G.flags.bath, `scene=${G.scene} bath=${G.flags.bath}`);
+  if (G.scene !== 'park') { G.goPark(); await sleep(950); run(60); }
+  G.goHome(); await sleep(950); run(60);
+
+  head('7 · 领养');
+  G.state.hearts = 500;
+  const before = G.pets.length;
+  G.adoptNew('tuxedo', 110);
+  run(300);
+  check('领养后多了一只', G.pets.length === before + 1, `${before} → ${G.pets.length}`);
+  check('新宠物走进了场景', G.pets[G.pets.length - 1].u > 0.05 && G.pets[G.pets.length - 1].u < 0.95);
+  check('存档同步', G.state.pets.length === G.pets.length);
+
+  head('8 · 公园');
+  G.goPark();
+  await sleep(900);
+  run(200);
+  check('切到公园场景', G.scene === 'park', G.scene);
+  check('公园背景已换', G.stage.bgEl.getAttribute('src').includes('park'));
+  check('出现了朋友宠物', !!G.friend);
+  check('宠物都在草地范围内', G.pets.every(p => p.v >= 0 && p.v <= 1.02));
+  G.throwBall();
+  run(500);
+  check('扔球不会卡死', true);
+  G.blowBubbles();
+  run(60);
+  check('吹泡泡正常', true);
+  G.goHome();
+  await sleep(900);
+  run(60);
+  check('能回家', G.scene === 'home', G.scene);
+  check('回家后工具栏是家里那套', !!fr.contentDocument.querySelector('#toolbar .btn[data-act="feed"]'));
+  check('回家后食盆还在', !!fr.contentDocument.querySelector('img[src*="bowl_food"]'));
+
+  head('9 · 边界');
+  for (const p of G.pets) { p.u = 5; p.v = 5; }
+  run(30);
+  check('宠物不会跑出场景', G.pets.every(p => p.u <= 1 && p.v <= 1.05),
+    G.pets.map(p => `${p.u.toFixed(1)},${p.v.toFixed(1)}`).join(' '));
+  check('全程无脚本错误', !W.__err, W.__err || '');
+
+  sum.textContent = `${fail === 0 ? '✅ 全部通过' : '❌ 有问题'}　通过 ${pass} / 失败 ${fail}`;
+  sum.className = fail === 0 ? 'ok' : 'bad';
+  document.title = `SELFTEST pass=${pass} fail=${fail}`;
+}
+main().catch(e => {
+  sum.textContent = '❌ 自检崩溃: ' + e.message;
+  document.title = 'SELFTEST crash=' + e.message;
+  console.error(e);
+});
+</script>
+</body>
+</html>

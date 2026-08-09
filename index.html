@@ -41,7 +41,15 @@ window.addEventListener('error',function(e){
     '<button onclick="location.reload()" style="margin-top:2vmin;font-size:3vmin;padding:1vmin 4vmin;border:none;border-radius:2vmin;background:#ff9d6c;color:#fff">重新打开</button>';
   }
 });
-if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
+/* ?nosw=1：自检页用，避免 SW 更新时把 iframe 重载掉 */
+if('serviceWorker' in navigator && location.search.indexOf('nosw=1')<0 && window.top===window.self){
+  window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})});
+  /* 新版 SW 接管后自动刷一次，避免拿着旧缓存的 JS 跑新页面 */
+  var reloaded=false;
+  navigator.serviceWorker.addEventListener('message',function(e){
+    if(e.data&&e.data.type==='sw-updated'&&!reloaded){reloaded=true;location.reload()}
+  });
+}
 </script>
 </body>
 </html>
