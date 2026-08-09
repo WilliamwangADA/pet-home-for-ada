@@ -1,12 +1,19 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.5.0';
+const VER = 'pet-home-v0.6.0';
 const CORE = [
   './', 'index.html', 'css/main.css',
-  'js/main.js', 'js/engine.js', 'js/mat.js', 'js/pet3d.js', 'js/props3d.js',
-  'js/physics.js', 'js/data.js', 'js/audio.js', 'js/save.js',
-  'js/vendor/three.module.min.js',
+  'js/main.js', 'js/stage.js', 'js/pet.js', 'js/data.js', 'js/audio.js', 'js/save.js',
   'manifest.webmanifest',
 ];
+const ART = [
+  'bg/bg_home.jpg', 'bg/bg_park.jpg', 'bg/bg_adopt.jpg',
+  ...['shiba','corgi','golden','bichon','calico','orange','gray','tuxedo']
+      .flatMap(b => ['idle','walk','sit','sleep','happy'].map(p => `pets/${b}_${p}.png`)),
+  ...['bed','cushion','ball','yarn','bone','plant','lamp','frame'].map(f => `furni/${f}.png`),
+  ...['bowl_food','bowl_water','tub','elf','butterfly','bubble'].map(f => `props/${f}.png`),
+  ...['bow','strawhat','partyhat','flower','scarf','bowtie','glasses','wings'].map(f => `clothes/${f}.png`),
+].map(f => `assets/art/${f}`);
+
 const VOICES = ['welcome','pick','adopt_done','home_first','hungry','dirty','feed_done',
   'bath_start','bath_done','brush_start','brush_done','stroke1','sleep','wake',
   'shop_open','placed','no_hearts','play','elf1','elf2','bark','bark2',
@@ -25,6 +32,8 @@ self.addEventListener('activate', (e) => {
     await self.clients.claim();
     // 后台预缓存配音，失败不影响游戏
     const c = await caches.open(VER);
+    // 先缓存美术（首屏最需要），再缓存配音
+    for (const u of ART) c.add(u).catch(() => {});
     VOICES.forEach(u => c.add(u).catch(() => {}));
   })());
 });

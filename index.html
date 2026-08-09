@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Ada的宠物小窝</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#ffe8d1">
+<meta name="theme-color" content="#cfe3ee">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,23 +14,21 @@
 <link rel="icon" href="assets/icons/icon-192.png">
 <style>
 /* 首屏加载动画：内联，保证秒出画面 */
-html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#ffe8d1;
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#cfe3ee;
   overscroll-behavior:none;-webkit-touch-callout:none;touch-action:manipulation;
   -webkit-user-select:none;user-select:none;
   font-family:"PingFang SC","Hiragino Sans GB",system-ui,sans-serif}
 #boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  background:linear-gradient(#ffe8d1,#ffd9b8);z-index:999;transition:opacity .5s}
+  background:linear-gradient(#e8f2f8,#cfe3ee);z-index:999;transition:opacity .5s}
 #boot.gone{opacity:0;pointer-events:none}
 .paw{font-size:15vmin;animation:pawbob 1s ease-in-out infinite}
 @keyframes pawbob{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-2vmin) rotate(8deg)}}
 #boot p{color:#a5623a;font-size:3vmin;margin-top:2vmin;letter-spacing:.3em}
-#stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 </style>
 <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
 <div id="boot"><div class="paw">🐾</div><p>小窝开门啦</p></div>
-<canvas id="stage"></canvas>
 <div id="game"></div>
 <script type="module" src="js/main.js"></script>
 <script>

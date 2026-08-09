@@ -1,3 +1,4 @@
 seed-test.html
 seed-old.html
 .DS_Store
+.env.local
