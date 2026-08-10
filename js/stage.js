@@ -140,8 +140,9 @@ export class Actor {
     im.className = 'art';
     im.alt = '';
     im.decoding = 'sync';
-    im.src = ART + file;
     im.hidden = true;
+    im.addEventListener('error', () => { im.dataset.bad = '1'; });
+    im.src = ART + file;
     this.rig.appendChild(im);
     this.imgs.set(file, im);
     return im;

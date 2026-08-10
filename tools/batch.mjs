@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { generate } from './gen.mjs';
 import { key } from './key.mjs';
 import { STYLE_BG, STYLE_CHAR, STYLE_PROP, STYLE_FG } from './style.mjs';
-import { BREEDS, POSES, POSE_KEYS, FURNI, PROPS, CLOTHES, BG, FG } from './assets.mjs';
+import { BREEDS, POSES, POSE_KEYS, POSES_B, POSE_B_KEYS, FURNI, PROPS, CLOTHES, BG, FG } from './assets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const P = (...a) => path.join(ROOT, ...a);
@@ -86,6 +86,13 @@ async function doPets(only) {
     // 锚：正面站立
     await sticker(`${b.base}，${POSES.idle}`, STYLE_CHAR, anchor, `${b.label} idle`);
     await sleep(1500);
+    // 动画第二帧：和主帧交替播放
+    for (const pk of POSE_B_KEYS) {
+      const out = P('assets/art/pets', `${bk}_${pk}.png`);
+      const prompt = `参考图里的这只小动物，保持完全一样的品种、毛色、花纹、五官和体型。${b.base}，${POSES_B[pk]}`;
+      await sticker(prompt, STYLE_CHAR, out, `${b.label} ${pk}`, anchor);
+      await sleep(1500);
+    }
     // 其余姿态引用锚图，保证是同一只
     for (const pk of POSE_KEYS) {
       if (pk === 'idle') continue;

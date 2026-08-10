@@ -293,13 +293,12 @@ function buildHome(entering) {
   clearScene();
   stage.setScene('home', { bg: 'bg_home.jpg' });
 
-  bowlA = new Actor(stage, { w: 11 });
+  bowlA = new Actor(stage, { w: 17 });
   bowlA.setArt('props/bowl_food.png');
   bowlA.u = SPOT.bowl.u; bowlA.v = SPOT.bowl.v;
-  bowlA.el.style.opacity = '.55';
   stage.add(bowlA);
 
-  waterA = new Actor(stage, { w: 10 });
+  waterA = new Actor(stage, { w: 15 });
   waterA.setArt('props/bowl_water.png');
   waterA.u = SPOT.water.u; waterA.v = SPOT.water.v;
   waterA.el.style.pointerEvents = 'auto';
@@ -472,7 +471,6 @@ function serveFood(emoji, fx, fy) {
   sfx.pop();
   later(0.6, () => {
     fly.remove();
-    bowlA.el.style.opacity = '1';
     bowlA.el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }],
       { duration: 380, easing: 'ease-out' });
     let done = 0;
@@ -494,7 +492,6 @@ function serveFood(emoji, fx, fy) {
             p.setMode('idle');
             p.happy(3); p.jump(0.6); barkOf(p); p.think('😋');
             if (++done === pets.length) {
-              bowlA.el.style.opacity = '.55';
               state.stats.hunger = 100; save();
               addHearts(5 * pets.length, bowlA);
               elfSay(pets.length > 1 ? '大家都吃饱啦，肚子圆滚滚！' : '吃得真香呀～肚子圆滚滚！', 'feed_done');
@@ -519,7 +516,7 @@ function openBath() {
   cancelGroom(true);
   const p = APet();
   bathScrub = 0;
-  tubA = new Actor(stage, { w: 34 });
+  tubA = new Actor(stage, { w: 46 });
   tubA.setArt('props/tub.png');
   tubA.u = SPOT.tub.u; tubA.v = SPOT.tub.v;
   stage.add(tubA);
@@ -546,8 +543,12 @@ function enterTub(p) {
   p.stop();
   p.u = SPOT.tub.u; p.v = SPOT.tub.v;
   p.setMode('idle');
-  const th = tubA.el.getBoundingClientRect().height || innerHeight * 0.22;
-  p.extraY = th * 0.42;                            // 抬到泡沫高度
+  /* 先缩小再抬高，顺序不能反 —— w 是在 setPose 里按 baseW 算的。
+     抬多少是离线把浴缸和宠物合成对比出来的：以宠物自身高度为基准抬 59%，
+     刚好露出整张脸、身体埋在泡沫里。
+     （拿缸高做基准量不准：.actor 高度是 0，得用宠物的 .rig 才量得到。） */
+  p.setScale(0.82);
+  p.extraY = (p.artHeight() || innerHeight * 0.25) * 0.59;
   p.zOverride = 1000 + Math.round(SPOT.tub.v * 1000) - 6;   // 压在浴缸后面
   tubA.zOverride = 1000 + Math.round(SPOT.tub.v * 1000);
   sfx.splash();
@@ -589,6 +590,7 @@ function finishBath() {
     for (let i = 0; i < 12; i++) spawnBubble(p);
     // 跳出浴缸
     p.extraY = 0; p.inTub = false;
+    p.setScale(1);
     p.zOverride = null;
     p.u = clamp(SPOT.tub.u - 0.15, 0.06, 0.94);
     p.jump(1.1);

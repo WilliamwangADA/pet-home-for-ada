@@ -12,9 +12,17 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const rand = (a, b) => a + Math.random() * (b - a);
 
 /* 各姿态对应的贴图与基础宽度（vmin） */
-const POSE_ART = {
-  idle: 'idle', walk: 'walk', sit: 'sit', sleep: 'sleep', happy: 'happy',
+/* 每个姿态的帧序列。两帧交替 = 真正的动画循环：
+   只有一张静止图时，宠物走路就是一张纸片在平移，腿完全不动。 */
+const POSE_FRAMES = {
+  idle:  ['idle', 'idle_b'],
+  walk:  ['walk', 'walk_b'],
+  happy: ['happy', 'happy_b'],
+  sit:   ['sit'],
+  sleep: ['sleep'],
 };
+/* 每秒切几帧 */
+const POSE_FPS = { idle: 0.55, walk: 6.5, happy: 5 };
 const POSE_W = { idle: 1.0, walk: 1.06, sit: 0.92, sleep: 1.12, happy: 1.0 };
 
 export class Pet extends Actor {
@@ -24,12 +32,13 @@ export class Pet extends Actor {
     this.name = name;
     this.idx = opts.idx ?? 0;
     this.npc = !!opts.npc;
-    this.baseW = opts.w || 31;
+    this.baseW = this.baseW0 = opts.w || 31;
     this.el.classList.add('pet');
     if (this.npc) this.el.classList.add('npc');
 
     // 5 张姿态图一次全建好并预解码，之后切姿态零延迟、不会闪空
-    for (const k of Object.keys(POSE_ART)) this.addArt(`pets/${breed}_${POSE_ART[k]}.png`);
+    for (const list of Object.values(POSE_FRAMES))
+      for (const f of list) this.addArt(`pets/${breed}_${f}.png`);
     this.mode = 'idle';
     this.setPose('idle');
 
@@ -67,11 +76,37 @@ export class Pet extends Actor {
     this.setEquipped(opts.equipped || []);
   }
 
+  /** 改整体尺寸（洗澡时缩小之类），立即生效 */
+  setScale(k) { this.baseW = this.baseW0 * k; this.setPose(this.pose); }
+
   setPose(p) {
     this.pose = p;
-    this.setArt(`pets/${this.breed}_${POSE_ART[p]}.png`);
+    this.frames = (POSE_FRAMES[p] || [p]).filter(f => this.has(f));
+    if (!this.frames.length) this.frames = [p];
+    this.frameT = 0; this.frameI = 0;
+    this.setArt(`pets/${this.breed}_${this.frames[0]}.png`);
     this.w = this.baseW * (POSE_W[p] || 1);
     this.el.classList.toggle('sleeping', p === 'sleep');
+  }
+  /** 这张帧图能不能用（第二帧素材可能还没生成，404 时自动退回单帧） */
+  has(f) {
+    const im = this.imgs.get(`pets/${this.breed}_${f}.png`);
+    return !!im && im.dataset.bad !== '1';
+  }
+  /** 推进帧动画 */
+  tickFrames(dt) {
+    if (!this.frames || this.frames.length < 2) return;
+    const fps = POSE_FPS[this.pose] || 4;
+    this.frameT += dt * (this.pose === 'walk' && this.running ? fps * 1.45 : fps);
+    if (this.frameT >= 1) {
+      this.frameT = 0;
+      // 跳过加载失败的帧
+      for (let n = 0; n < this.frames.length; n++) {
+        this.frameI = (this.frameI + 1) % this.frames.length;
+        if (this.has(this.frames[this.frameI])) break;
+      }
+      this.setArt(`pets/${this.breed}_${this.frames[this.frameI]}.png`);
+    }
   }
 
   setMode(m) {
@@ -119,6 +154,15 @@ export class Pet extends Actor {
     this._bt = setTimeout(() => this.bubble.classList.remove('show'), ms);
   }
   faceTo(u) { this.flip = u < this.u; }
+  /** 贴纸真实显示高度（px）。.actor 本身高度是 0，量它拿不到尺寸 */
+  artHeight() { return this.rig.getBoundingClientRect().height || 0; }
+  /** 当前显示身高（px）的快速估算。贴图接近正方形，用宽度近似即可，
+      每帧调 getBoundingClientRect 太贵。 */
+  h() {
+    const vmin = Math.min(innerWidth, innerHeight) / 100;
+    const g = this.stage.ground(this.u, this.v);
+    return this.w * g.scale * vmin;
+  }
 
   update(dt, time) {
     this.now = time;
@@ -147,42 +191,49 @@ export class Pet extends Actor {
     this.mood = lerp(this.mood, isHappy ? 1 : (this.mode === 'sleep' ? 0 : 0.3), dt * 4);
     if (!isHappy && this.pose === 'happy' && this.mode === 'idle') this.setPose('idle');
 
+    this.tickFrames(dt);
+
+    /* 所有幅度都以【自身身高】为基准，不能写死像素：
+       屏幕越大宠物越大，7px 的起伏在 iPad 上等于没动。 */
+    const H = this.h();
+
     /* 跳跃 */
     if (this.jumpV !== 0 || this.jumpY > 0) {
-      this.jumpV -= 2400 * dt;
+      this.jumpV -= H * 11 * dt;
       this.jumpY += this.jumpV * dt;
-      if (this.jumpY <= 0) { this.jumpY = 0; this.jumpV = 0; this.squashT = 0.16; }
+      if (this.jumpY <= 0) { this.jumpY = 0; this.jumpV = 0; this.squashT = 0.18; }
     }
 
-    /* 走路：上下小跳 + 左右摇摆，让静止的贴纸有步伐感 */
+    /* 走路：上下起伏 + 左右摇摆，配合两帧交替的迈腿 */
     const walking = this.mode === 'walk';
     this.phase += dt * (walking ? (this.running ? 11 : 7.5) : 1.6);
-    const stepBob = walking ? Math.abs(Math.sin(this.phase)) * 7 : 0;
-    const sway = walking ? Math.sin(this.phase) * 2.6 : 0;
+    const stepBob = walking ? Math.abs(Math.sin(this.phase)) * H * 0.075 : 0;
+    const sway = walking ? Math.sin(this.phase) * 5.5 : 0;
 
     /* 呼吸 */
     const breathe = this.mode === 'sleep'
-      ? Math.sin(time * 1.15) * 0.035
-      : Math.sin(time * 2.2) * 0.014;
+      ? Math.sin(time * 1.15) * 0.055
+      : Math.sin(time * 2.2) * 0.035;
 
-    /* 开心：多一点弹性 */
-    const joy = isHappy ? Math.abs(Math.sin(time * 7)) * 5 : 0;
+    /* 开心：弹起来 */
+    const joy = isHappy ? Math.abs(Math.sin(time * 7)) * H * 0.06 : 0;
 
     this.bob = stepBob + this.jumpY + joy
-      + (this.inTub ? Math.sin(time * 2.4) * 3 : 0);
-    this.tilt = sway + (isHappy ? Math.sin(time * 6.5) * 2.2 : Math.sin(time * 0.8 + this.phase) * 0.5);
+      + (this.inTub ? Math.sin(time * 2.4) * H * 0.02 : 0);
+    this.tilt = sway + (isHappy ? Math.sin(time * 6.5) * 5 : Math.sin(time * 0.8 + this.phase) * 1.2);
 
-    /* 吃饭：身体前倾 + 有节奏地低头啃，让"在盆里吃"读得出来 */
+    /* 吃饭：身体前倾 + 有节奏地低头啃 */
     if (this.eating) {
       const dip = (Math.sin(time * 7) * 0.5 + 0.5);
-      this.tilt = (this.flip ? -1 : 1) * (10 + dip * 7);
-      this.bob = -dip * 5;
+      this.tilt = (this.flip ? -1 : 1) * (12 + dip * 9);
+      this.bob = -dip * H * 0.05;
     }
 
-    /* 落地挤压 */
+    /* 落地挤压：明显一点才有重量感 */
     if (this.squashT > 0) {
       this.squashT -= dt;
-      this.squash = 1 - Math.max(0, this.squashT / 0.16) * 0.16;
+      const k = Math.max(0, this.squashT / 0.18);
+      this.squash = 1 - k * 0.22;
     } else this.squash = 1 + breathe;
 
   }
