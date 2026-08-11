@@ -18,14 +18,18 @@ export const isCat = (b) => BREEDS[b] && BREEDS[b].kind === 'cat';
 
 /* ---------------- 家具 ----------------
    w = 贴纸宽度（vmin）；id/name/price/use/zone 与旧版一致，旧存档直接可用 */
+/* r    = 地面碰撞半径（u 单位，屏幕宽度的比例）
+   dyn  = 可被踢飞/滚动的玩具
+   soft = 软的，宠物可以走上去（狗窝、坐垫）不当障碍
+   rest/fric = 弹性 / 摩擦，决定手感：球会弹会滚，骨头几乎不弹 */
 export const FURNI = [
-  { id: 'bed',     name: '温暖狗窝', price: 15, w: 30, use: 'sleep', zone: 'floor' },
-  { id: 'cushion', name: '软软坐垫', price: 10, w: 22, use: 'sit',   zone: 'floor' },
-  { id: 'ball',    name: '彩色小球', price: 8,  w: 9,  use: 'play',  zone: 'floor' },
-  { id: 'yarn',    name: '毛线球',   price: 8,  w: 10, use: 'play',  zone: 'floor' },
-  { id: 'bone',    name: '骨头玩具', price: 10, w: 12, use: 'play',  zone: 'floor' },
-  { id: 'plant',   name: '小盆栽',   price: 12, w: 18, use: null,    zone: 'floor' },
-  { id: 'lamp',    name: '暖暖小灯', price: 20, w: 17, use: null,    zone: 'floor' },
+  { id: 'bed',     name: '温暖狗窝', price: 15, w: 30, use: 'sleep', zone: 'floor', r: 0.115, soft: true },
+  { id: 'cushion', name: '软软坐垫', price: 10, w: 22, use: 'sit',   zone: 'floor', r: 0.085, soft: true },
+  { id: 'ball',    name: '彩色小球', price: 8,  w: 10, use: 'play',  zone: 'floor', r: 0.030, dyn: true, rest: 0.60, fric: 1.6, spin: 1 },
+  { id: 'yarn',    name: '毛线球',   price: 8,  w: 11, use: 'play',  zone: 'floor', r: 0.032, dyn: true, rest: 0.42, fric: 2.4, spin: 1 },
+  { id: 'bone',    name: '骨头玩具', price: 10, w: 13, use: 'play',  zone: 'floor', r: 0.034, dyn: true, rest: 0.28, fric: 3.4, spin: 0.35 },
+  { id: 'plant',   name: '小盆栽',   price: 12, w: 18, use: null,    zone: 'floor', r: 0.062 },
+  { id: 'lamp',    name: '暖暖小灯', price: 20, w: 17, use: null,    zone: 'floor', r: 0.052 },
   { id: 'frame',   name: '爱心画框', price: 15, w: 15, use: null,    zone: 'wall' },
 ];
 

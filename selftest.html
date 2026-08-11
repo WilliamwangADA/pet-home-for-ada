@@ -190,6 +190,89 @@ async function main() {
   check('回家后工具栏是家里那套', !!fr.contentDocument.querySelector('#toolbar .btn[data-act="feed"]'));
   check('回家后食盆还在', !!fr.contentDocument.querySelector('img[src*="bowl_food"]'));
 
+  head('8.5 · 物理与交互');
+  /* 这一段要干净隔离：宠物会主动跑去拱球（这正是我们要的交互），
+     所以测物理本身时必须先把它们支到角落、按住 AI、关掉碰撞。 */
+  G.state.hearts = 500;
+  for (const id of ['ball', 'plant']) {
+    if (G.furni.some(f => f.def.id === id)) continue;
+    if (G.state.decor[id]) delete G.state.decor[id];
+    const el = fr.contentDocument.querySelector(`#shop .shop-item[data-id="${id}"]`);
+    if (el) { el.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true })); run(20); }
+  }
+  const freeze = (on) => {
+    for (const p of G.pets) {
+      p.stop(); p.agent.ghost = on;
+      p.nextThink = on ? 1e9 : 0;
+      if (on) { p.u = 0.08; p.v = 0.12; }
+    }
+  };
+
+  const ballA = G.furni.find(f => f.def.id === 'ball');
+  check('球是刚体', !!(ballA && ballA.body), '没有 body');
+  if (ballA && ballA.body) {
+    freeze(true);
+    // ① 踢一脚会飞、会往前滚、会自转
+    ballA.u = 0.35; ballA.v = 0.6; ballA.h = ballA.body.hr; ballA.spin = 0;
+    ballA.body.kick(0.9, 0, 0.5);
+    run(3);
+    check('踢一脚球会飞起来', ballA.h > ballA.body.hr + 0.001, `h=${ballA.h.toFixed(4)}`);
+    run(18);
+    check('球会往前滚', ballA.u > 0.42, `u=${ballA.u.toFixed(3)}`);
+    check('球会自转（滚动感）', Math.abs(ballA.spin) > 5, `spin=${(ballA.spin || 0).toFixed(0)}`);
+    // ② 没人碰时会自己停
+    run(260);
+    check('没人碰时球会自己停下来', ballA.body.sleep,
+      `速度 ${Math.hypot(ballA.body.vu, ballA.body.vv).toFixed(3)}`);
+    check('球不会滚出场景', ballA.u > 0 && ballA.u < 1 && ballA.v > 0 && ballA.v <= 1.02,
+      `${ballA.u.toFixed(2)},${ballA.v.toFixed(2)}`);
+    // ③ 撞墙反弹
+    ballA.u = 0.5; ballA.v = 0.6; ballA.h = ballA.body.hr;
+    ballA.body.kick(2.0, 0, 0.05);
+    run(50);
+    check('球撞墙会反弹回来', ballA.body.vu <= 0.01,
+      `u=${ballA.u.toFixed(2)} vu=${ballA.body.vu.toFixed(2)}`);
+    // ④ 宠物撞上去球会被撞飞
+    freeze(false);
+    for (const p of G.pets) { p.stop(); p.nextThink = 1e9; }
+    ballA.u = 0.5; ballA.v = 0.6; ballA.h = ballA.body.hr; ballA.body.stop();
+    const p0 = G.pets[0];
+    p0.u = 0.42; p0.v = 0.6; p0.vu = 0.6; p0.agent.vu = 0.6; p0.agent.vv = 0;
+    const u0 = ballA.u;
+    run(10);
+    check('宠物撞上去球会被撞飞', ballA.u > u0 + 0.003 || ballA.h > ballA.body.hr + 0.002,
+      `球 ${u0.toFixed(3)} → ${ballA.u.toFixed(3)}, h=${ballA.h.toFixed(4)}`);
+  }
+
+  // ⑤ 家具是实心的：宠物不能穿过去
+  const plant = G.furni.find(f => f.def.id === 'plant');
+  if (plant && plant.stat) {
+    const p0 = G.pets[0];
+    p0.stop(); p0.agent.ghost = false;
+    p0.u = plant.u; p0.v = plant.v;          // 强行塞进盆栽里
+    run(6);
+    const d = Math.hypot(p0.u - plant.u, (p0.v - plant.v) * 0.62);
+    const inWorld = G.phys.statics.includes(plant.stat);
+    check('宠物会被家具挡开（不穿模）', d > plant.stat.r * 0.6,
+      `距离 ${d.toFixed(3)} 半径 ${plant.stat.r} `
+      + `stat在物理世界=${inWorld} statics数=${G.phys.statics.length} `
+      + `stat位置=${plant.stat.u.toFixed(2)},${plant.stat.v.toFixed(2)} `
+      + `盆栽位置=${plant.u.toFixed(2)},${plant.v.toFixed(2)} `
+      + `agent数=${G.phys.agents.length} ghost=${p0.agent.ghost}`);
+  } else line('warn', '  · 没有盆栽，跳过家具碰撞测试');
+
+  // ⑥ 宠物之间不重叠
+  if (G.pets.length > 1) {
+    G.pets[0].stop(); G.pets[1].stop();
+    G.pets[0].agent.ghost = G.pets[1].agent.ghost = false;
+    G.pets[0].u = 0.5; G.pets[0].v = 0.6;
+    G.pets[1].u = 0.5; G.pets[1].v = 0.6;
+    run(12);
+    const dd = Math.hypot(G.pets[0].u - G.pets[1].u, (G.pets[0].v - G.pets[1].v) * 0.62);
+    check('宠物不会叠在一起', dd > 0.05, `距离 ${dd.toFixed(3)}`);
+  }
+  for (const p of G.pets) p.nextThink = 0;    // 恢复 AI
+
   head('9 · 边界');
   for (const p of G.pets) { p.u = 5; p.v = 5; }
   run(30);

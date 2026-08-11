@@ -117,6 +117,8 @@ export class Actor {
   constructor(stage, { w = 22 } = {}) {
     this.stage = stage;
     this.u = 0.5; this.v = 0.6;
+    this.h = 0;              // 离地高度（物理单位，和 u/v 同量级）
+    this.spin = 0;           // 滚动角（度）
     this.w = w;
     this.flip = false;
     this.bob = 0;
@@ -168,16 +170,21 @@ export class Actor {
     }
     const g = this.stage.ground(this.u, this.v);
     const s = g.scale;
+    /* 高度 h 是世界单位，换算成屏幕像素才能画出"飞起来"。
+       1.0 个 h ≈ 一屏高，实际用到的都是 0.0x 量级。 */
+    const hPx = this.h * innerHeight * 0.9 * s;
     this.el.style.width = this.w * s + 'vmin';
     this.el.style.left = g.x * 100 + '%';
     this.el.style.top = g.y * 100 + '%';
     this.el.style.zIndex = this.zOverride != null
       ? this.zOverride : Math.round(1000 + this.v * 1000);
     this.rig.style.transform =
-      `translateY(${-this.bob - this.extraY}px) `
-      + `rotate(${this.tilt}deg) scale(${this.flip ? -1 : 1}, ${this.squash})`;
+      `translateY(${-this.bob - this.extraY - hPx}px) `
+      + `rotate(${this.tilt + this.spin}deg) scale(${this.flip ? -1 : 1}, ${this.squash})`;
+    /* 飞得越高，影子越小越淡 */
+    const lift = this.bob + this.extraY + hPx;
     this.shadow.style.transform =
-      `translate(-50%,50%) scale(${1 - Math.min(0.45, (this.bob + this.extraY) / 90)})`;
-    this.shadow.style.opacity = 0.34 - Math.min(0.2, (this.bob + this.extraY) / 300);
+      `translate(-50%,50%) scale(${Math.max(0.35, 1 - lift / 140)})`;
+    this.shadow.style.opacity = Math.max(0.08, 0.34 - lift / 420);
   }
 }

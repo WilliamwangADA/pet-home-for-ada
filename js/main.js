@@ -1,9 +1,10 @@
-/* ============ Ada的宠物小窝 · 主逻辑 v0.6.0（2.5D 手绘 / 宫崎骏画风）============ */
+/* ============ Ada的宠物小窝 · 主逻辑 v0.8.0（2.5D 手绘 + 真物理碰撞）============ */
 import { Stage, Actor, ART } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
 import { sfx, voice, petVoice } from './audio.js';
 import { state, load, save, activePet } from './save.js';
+import { Phys, Body, dist } from './phys.js';
 
 const game = document.getElementById('game');
 const $ = (h) => { const d = document.createElement('div'); d.innerHTML = h; return d.firstElementChild; };
@@ -24,6 +25,9 @@ const SPOT = {
 };
 
 const stage = new Stage(game);
+/* 2.5D 物理世界：地面是 (u,v) 平面，玩具还有离地高度 h */
+const phys = new Phys();
+phys.onImpact = onImpact;
 const fxLayer = $('<div id="fx"></div>');
 game.appendChild(fxLayer);
 
@@ -100,8 +104,25 @@ function elfTip() {
 function newPet(breed, name, opts = {}) {
   const p = new Pet(stage, breed, name, { ...opts, now: simClock });
   p.speed = (isCat(breed) ? 0.28 : 0.24) * (SPD || 1);
+  /* 宠物是会走动的碰撞体：撞得开玩具、绕得过家具、互相不重叠 */
+  p.agent = phys.addAgent({
+    o: p, r: 0.062, vu: 0, vv: 0,
+    onHit: (b) => onPetKick(p, b),
+  });
   if (!p.npc) bindPet(p);
   return p;
+}
+
+/* 宠物撞到玩具 */
+function onPetKick(p, b) {
+  const now = simClock;
+  if (b._kickCd && now < b._kickCd) return;
+  b._kickCd = now + 0.7;
+  p.happy(2.2);
+  p.jump(0.55);
+  barkOf(p);
+  if (Math.random() < 0.35) addHearts(1, p);
+  if (Math.random() < 0.18) elfSay(pick(['它把球拱跑啦！', '玩得好起劲～']), 'play');
 }
 function barkOf(p) {
   if (p.npc) return;
@@ -158,37 +179,70 @@ function bindPet(p) {
 function autonomy(p) {
   if (nightOn || bathOpen || groomMode) return;
   const r = Math.random();
+
+  /* 优先级最高：正在滚的球最吸引小动物 —— 谁近谁去追 */
+  const rolling = phys.bodies.find(b => !b.held && !b.sleep
+    && Math.hypot(b.vu, b.vv) > 0.12
+    && dist({ u: b.u, v: b.v }, p) < 0.55);
+  if (rolling && !p.npc) { chaseToy(p, rolling); return; }
+
   if (sceneName === 'park' || p.npc) {
     if (r < 0.78) p.goto(rand(0.1, 0.9), rand(0.15, 0.95), null, r < 0.3);
     else p.happy(1.6);
     return;
   }
-  const toys = furniList.filter(f => f.def.use === 'play');
+
   const buddies = pets.filter(o => o !== p && o.mode === 'idle');
-  if (buddies.length && r < 0.26) {
+  /* 找地上的玩具去拱 */
+  const toy = phys.nearestBody(p.u, p.v, 0.75);
+  if (toy && r < 0.46) { chaseToy(p, toy); return; }
+
+  /* 找同伴玩：追过去 → 一起跳 */
+  if (buddies.length && r < 0.66) {
     const b = pick(buddies);
-    p.goto(clamp(b.u + rand(-0.14, 0.14), 0.08, 0.92), clamp(b.v + rand(-0.08, 0.08), 0.1, 0.95));
+    p.goto(clamp(b.u + rand(-0.09, 0.09), 0.08, 0.92),
+      clamp(b.v + rand(-0.05, 0.05), 0.1, 0.95), () => {
+        p.faceTo(b.u); b.faceTo(p.u);
+        p.happy(2.6); b.happy(2.6);
+        p.jump(0.8); later(0.18, () => b.jump(0.8));
+        particleAt(p, pick(['💞', '🎵']), 2);
+        if (Math.random() < 0.4) addHearts(1, p);
+      }, r < 0.3);
     return;
   }
-  if (toys.length && r < 0.5) {
-    const t = pick(toys);
-    p.goto(clamp(t.u + rand(-0.06, 0.06), 0.08, 0.92), clamp(t.v + 0.05, 0.1, 0.95), () => {
-      p.happy(2.8); p.jump(0.7); barkOf(p);
-      wiggleFurni(t.def.id);
-      particleAt(p, pick(['🎵', '✨', '💛']), 2);
-      if (Math.random() < 0.5) addHearts(1);
-      if (Math.random() < 0.2) elfSay('看！它玩得多开心呀！', 'play');
-    }, true);
-    return;
-  }
+
   const cushion = furniList.find(f => f.def.id === 'cushion');
-  if (cushion && r < 0.62) {
+  if (cushion && r < 0.76) {
     p.goto(cushion.u, cushion.v, () => {
       p.setMode('sit'); p.happy(3.4);
       later(5.2, () => { if (p.mode === 'sit') p.setMode('idle'); });
     });
-  } else if (r < 0.9) p.goto(rand(0.1, 0.9), rand(0.15, 0.95));
+  } else if (r < 0.94) p.goto(rand(0.1, 0.9), rand(0.15, 0.95));
   else p.happy(1.6);
+}
+
+/* 跑去拱玩具：走到球边 → 用鼻子顶出去（真的施加冲量） */
+function chaseToy(p, b) {
+  if (p._chasing) return;
+  p._chasing = true;
+  const aim = () => ({
+    u: clamp(b.u - Math.sign(b.u - p.u) * 0.05, 0.06, 0.94),
+    v: clamp(b.v - 0.03, 0.08, 0.98),
+  });
+  const t = aim();
+  p.goto(t.u, t.v, () => {
+    p._chasing = false;
+    p.faceTo(b.u);
+    p.happy(2.6); p.jump(0.6); barkOf(p);
+    // 朝远离自己的方向顶一下
+    const du = b.u - p.u, dv = (b.v - p.v) * 0.6;
+    const d = Math.hypot(du, dv) || 1;
+    b.kick(du / d * rand(0.5, 0.95), dv / d * rand(0.5, 0.95) / 0.6, rand(0.28, 0.5));
+    particleAt(p, pick(['🎵', '✨', '💛']), 2);
+    if (Math.random() < 0.5) addHearts(1);
+    if (Math.random() < 0.22) elfSay(pick(['看！它玩得多开心呀！', '球被拱跑啦～']), 'play');
+  }, true);
+  later(6, () => { p._chasing = false; });   // 追丢了就放弃
 }
 
 /* ---------------- 家具 ---------------- */
@@ -200,8 +254,7 @@ function decorPos(f) {
   // 旧存档兼容：v0.5 是 3D 世界坐标，v0.4 及更早是屏幕比例
   if (typeof d.z === 'number') return { u: clamp(d.x / 10.4 + 0.5, 0.08, 0.92), v: clamp(d.z / 9.5 + 0.7, 0.12, 0.95) };
   return { u: clamp(d.x, 0.08, 0.92), v: clamp((d.y - 0.5) / 0.42, 0.12, 0.95) };
-}
-function spawnFurni(f) {
+}function spawnFurni(f) {
   const pos = decorPos(f) || { u: rand(0.25, 0.75), v: rand(0.35, 0.8) };
   const a = new Actor(stage, { w: f.w });
   a.el.classList.add('furni');
@@ -209,7 +262,17 @@ function spawnFurni(f) {
   a.setArt(`furni/${f.id}.png`);
   a.u = pos.u; a.v = pos.v;
   a.def = f;
-  if (f.zone === 'wall') { a.wall = true; a.wallY = 0.30; a.u = clamp(pos.u, 0.08, 0.92); }
+  if (f.zone === 'wall') {
+    a.wall = true; a.wallY = 0.30; a.u = clamp(pos.u, 0.08, 0.92);
+  } else if (f.dyn) {
+    /* 玩具 = 刚体：会被踢飞、会弹、会滚、会撞到别的东西 */
+    a.body = phys.addBody(new Body(a, f.r, {
+      hr: f.r * 0.85, rest: f.rest, fric: f.fric, spin: f.spin,
+    }));
+  } else {
+    /* 家具 = 障碍物。soft 的（狗窝/坐垫）宠物可以走上去，不当墙用 */
+    a.stat = phys.addStatic({ u: a.u, v: a.v, r: f.r, soft: !!f.soft, actor: a });
+  }
   stage.add(a);
   furniList.push(a);
   bindFurni(a);
@@ -219,13 +282,14 @@ function bindFurni(a) {
   let drag = null;
   a.el.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
-    drag = e.pointerId;
     a.el.setPointerCapture(e.pointerId);
     a.el.classList.add('dragging');
     sfx.pip();
+    drag = { id: e.pointerId, hist: [] };
+    if (a.body) { a.body.held = true; a.body.stop(); }   // 抓在手里时不受物理支配
   });
   a.el.addEventListener('pointermove', (e) => {
-    if (drag !== e.pointerId) return;
+    if (!drag || drag.id !== e.pointerId) return;
     if (a.wall) {
       a.u = clamp(e.clientX / innerWidth, 0.06, 0.94);
       a.wallY = clamp(e.clientY / innerHeight, 0.1, 0.6);
@@ -233,11 +297,36 @@ function bindFurni(a) {
     }
     const g = screenToGround(e.clientX, e.clientY);
     a.u = g.u; a.v = g.v;
+    if (a.stat) { a.stat.u = a.u; a.stat.v = a.v; }
+    if (a.body) {
+      a.h = a.body.hr + 0.05;                            // 拎在半空
+      drag.hist.push({ u: a.u, v: a.v, t: performance.now() });
+      if (drag.hist.length > 6) drag.hist.shift();
+    }
   });
   const drop = () => {
-    if (drag === null) return;
+    if (!drag) return;
+    const hist = drag.hist;
     drag = null;
     a.el.classList.remove('dragging');
+    if (a.body) {
+      a.body.held = false;
+      /* 按松手前的挥动速度扔出去：甩得越快飞得越远、弹得越高 */
+      if (hist.length > 1) {
+        const p0 = hist[0], p1 = hist[hist.length - 1];
+        const dt = Math.max(0.02, (p1.t - p0.t) / 1000);
+        const vu = clamp((p1.u - p0.u) / dt, -1.6, 1.6);
+        const vv = clamp((p1.v - p0.v) / dt, -1.6, 1.6);
+        const sp = Math.hypot(vu, vv);
+        a.body.kick(vu, vv, 0.2 + Math.min(0.5, sp * 0.4));
+        if (sp > 0.3) {
+          elfSay(pick(['扔得真远！它们要去追啦～', '看它们跑得多快！']), null, 2400);
+          for (const p of pets) if (p.mode === 'idle') p.happy(1.5);
+        }
+      } else a.body.kick(0, 0, 0.1);
+      sfx.pop();
+      return;                                            // 玩具会自己滚，不写存档位置
+    }
     sfx.pop();
     state.decor[a.def.id] = a.wall ? { u: a.u, v: a.wallY } : { u: a.u, v: a.v };
     save();
@@ -265,6 +354,22 @@ function screenToGround(px, py) {
   return { u, v };
 }
 
+/* 物理撞击反馈：不同碰撞给不同声音和粒子 */
+function onImpact(b, kind, force, other) {
+  const a = b.o;
+  if (kind === 'ground' && force > 0.28) sfx.boing();
+  else if (kind === 'wall') sfx.pip();
+  else if (kind === 'furni' && force > 0.22) { sfx.pop(); if (other && other.actor) wiggleActor(other.actor); }
+  else if (kind === 'body' && force > 0.28) sfx.pip();
+  else if (kind === 'pet') { sfx.boing(); particleAt(a, pick(['💨', '✨']), 2); }
+}
+function wiggleActor(a) {
+  if (!a || !a.el) return;
+  a.el.classList.remove('wiggle'); void a.el.offsetWidth;
+  a.el.classList.add('wiggle');
+  setTimeout(() => a.el.classList.remove('wiggle'), 620);
+}
+
 /* ---------------- 场景 ---------------- */
 let bowlA, waterA, tubA;
 function clearScene() {
@@ -274,6 +379,7 @@ function clearScene() {
   bathOpen = false; groomMode = false;
   if (groomTimer) { cancelTimer(groomTimer); groomTimer = null; }
   clearTimers();          // 上个场景挂起的回调不能打到新场景上
+  phys.reset();           // 物理世界跟着场景一起重建
   stopParkLife();
   game.querySelectorAll('#hud,#toolbar,.tray,.drawer,#elf,#speech,#bath-meter').forEach(n => n.remove());
 }
@@ -900,43 +1006,55 @@ function chaseButterfly(b) {
     addHearts(2, c);
     if (Math.random() < 0.5) elfSay('追到蝴蝶啦，好厉害！', 'park_butterfly');
   }, true);
-}
-function throwBall() {
+}function throwBall() {
   if (ballBusy || !pets.length || sceneName !== 'park') return;
   ballBusy = true;
   sfx.pop(); voice('park_ball');
-  const ball = new Actor(stage, { w: 7 });
+
+  /* 走真物理：抛出去后自己弹、自己滚、撞到东西会反弹 */
+  const ball = new Actor(stage, { w: 8 });
   ball.setArt('furni/ball.png');
-  ball.u = 0.5; ball.v = 1.0;
+  ball.u = 0.5; ball.v = 0.98;
   stage.add(ball);
-  const tu = rand(0.15, 0.85), tv = rand(0.2, 0.6);
-  const t0 = performance.now(), dur = 850;
-  const arc = (now) => {
-    const k = Math.min(1, (now - t0) / dur);
-    ball.u = 0.5 + (tu - 0.5) * k;
-    ball.v = 1.0 + (tv - 1.0) * k;
-    ball.bob = Math.sin(k * Math.PI) * 180;
-    ball.tilt = k * 720;
-    ball.draw();
-    if (k < 1) requestAnimationFrame(arc);
-    else {
-      sfx.boing();
-      ball.bob = 0; ball.tilt = 0;
-      particleAt(ball, '💨', 2);
-      const r = APet();
-      r.goto(tu, tv, () => {
+  const body = phys.addBody(new Body(ball, 0.03, { hr: 0.026, rest: 0.66, fric: 1.0, spin: 1 }));
+  const tu = rand(0.15, 0.85), tv = rand(0.25, 0.6);
+  body.kick((tu - ball.u) * 1.35, (tv - ball.v) * 1.35, 0.72);
+
+  // 全家一起去追，谁先到谁叼回来
+  for (const p of pets) p.stop();
+  let fetched = false;
+  const watch = repeat(0.25, 40, () => {
+    if (fetched) return;
+    // 球停下来之前，宠物一直朝它跑
+    for (const p of pets) {
+      if (p.mode === 'sleep') continue;
+      if (dist({ u: body.u, v: body.v }, p) < 0.075) {
+        fetched = true;
+        cancelTimer(watch);
+        phys.removeBody(body);
         stage.remove(ball);
-        r.think('🥎'); sfx.pip(); barkOf(r);
-        r.goto(rand(0.4, 0.6), rand(0.75, 0.95), () => {
-          trick(r);
-          addHearts(3, r);
-          elfSay(pick(['捡回来啦！再扔一次？', `${r.name}跑得好快呀！`]), 'park_fetch');
+        p.think('🥎'); sfx.pip(); barkOf(p);
+        p.goto(rand(0.4, 0.6), rand(0.8, 0.95), () => {
+          trick(p);
+          addHearts(3, p);
+          elfSay(pick(['捡回来啦！再扔一次？', `${p.name}跑得好快呀！`]), 'park_fetch');
           ballBusy = false;
         }, true);
-      }, true);
+        return;
+      }
+      if (p.tu === null || p._ballAim === undefined || Math.abs(p._ballAim - body.u) > 0.06) {
+        p._ballAim = body.u;
+        p.goto(clamp(body.u, 0.06, 0.94), clamp(body.v + 0.02, 0.1, 0.98), null, true);
+      }
     }
-  };
-  requestAnimationFrame(arc);
+  });
+  // 兜底：万一谁都没捡到，10 秒后收工
+  later(10, () => {
+    if (fetched) return;
+    cancelTimer(watch);
+    phys.removeBody(body); stage.remove(ball);
+    ballBusy = false;
+  });
 }
 function blowBubbles() {
   sfx.bubble();
@@ -1021,24 +1139,6 @@ function runTimers() {
     }
   }
 }
-function separate() {
-  const all = friend ? pets.concat(friend) : pets;
-  for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
-    const a = all[i], b = all[j];
-    // 正在吃饭/洗澡/睡觉的不参与推挤，否则会被从食盆、浴缸边推走
-    if (a.mode === 'sleep' || b.mode === 'sleep' || a.inTub || b.inTub
-      || a.eating || b.eating) continue;
-    let du = b.u - a.u, dv = (b.v - a.v) * 0.6;
-    let d = Math.hypot(du, dv);
-    if (d >= 0.13) continue;
-    if (d < 1e-4) { du = 0.02; dv = 0; d = 0.02; }
-    const push = (0.13 - d) * 0.22;
-    a.u = clamp(a.u - du / d * push, 0.04, 0.96);
-    b.u = clamp(b.u + du / d * push, 0.04, 0.96);
-    a.v = clamp(a.v - dv / d * push * 0.6, 0.05, 1);
-    b.v = clamp(b.v + dv / d * push * 0.6, 0.05, 1);
-  }
-}
 
 /* 一帧的全部推进逻辑。抽出来是为了能被调试器手动步进 ——
    无头浏览器里 rAF 几乎不触发，行为逻辑没法靠截图验证。 */
@@ -1046,6 +1146,11 @@ function step(dt, time) {
   runTimers();
   for (const p of pets) {
     p.update(dt, time);
+    if (p.agent) {
+      p.agent.vu = p.vu || 0; p.agent.vv = p.vv || 0;
+      p.agent.ghost = !!p.inTub;
+      p.agent.noPush = p.mode === 'sleep' || p.eating || !!p.inTub;
+    }
     if (p.tu === null && p.mode === 'idle' && time > p.nextThink && !nightOn && !bathOpen && !groomMode) {
       p.nextThink = time + rand(3.5, 8);
       autonomy(p);
@@ -1053,10 +1158,11 @@ function step(dt, time) {
   }
   if (friend) {
     friend.update(dt, time);
+    if (friend.agent) { friend.agent.vu = friend.vu || 0; friend.agent.vv = friend.vv || 0; }
     if (friend.tu === null && time > friend.nextThink) { friend.nextThink = time + rand(3, 7); autonomy(friend); }
   }
   for (const p of nurseryPets) p.update(dt, time);
-  if (pets.length > 1 || friend) separate();
+  phys.step(dt);   // 玩具的重力/弹跳/滚动、宠物绕开家具、宠物之间互不重叠
 
   for (let i = 0; i < butterflies.length; i++) {
     const b = butterflies[i];
@@ -1197,6 +1303,7 @@ if (dbg && hasSave) setTimeout(() => ({
 })[dbg]?.(), 1500);
 /* 自检用出口（selftest.html 驱动） */
 window.__game = {
+  phys,
   get pets() { return pets; },
   get friend() { return friend; },
   get furni() { return furniList; },

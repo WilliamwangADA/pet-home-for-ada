@@ -51,6 +51,7 @@ export class Pet extends Actor {
     this.now = opts.now || 0;                 // 跟主循环共用一个累加时钟
     this.nextThink = this.now + rand(2, 5);
     this.strokeAcc = 0; this.petStreak = 0;
+    this.vu = 0; this.vv = 0;          // 本帧移动速度，物理层拿去算撞击力
     this.buddyCd = 0;
 
     /* 情绪气泡 */
@@ -140,6 +141,7 @@ export class Pet extends Actor {
   }
   stop() {
     this.tu = this.tv = null; this.onArrive = null; this.eating = false;
+    this.vu = this.vv = 0;
     if (this.mode === 'walk') this.setMode('idle');
   }
   jump(h = 1) { if (this.jumpY <= 0.5) this.jumpV = 620 * h; this.happy(1.6); }
@@ -157,8 +159,9 @@ export class Pet extends Actor {
   /** 贴纸真实显示高度（px）。.actor 本身高度是 0，量它拿不到尺寸 */
   artHeight() { return this.rig.getBoundingClientRect().height || 0; }
   /** 当前显示身高（px）的快速估算。贴图接近正方形，用宽度近似即可，
-      每帧调 getBoundingClientRect 太贵。 */
-  h() {
+      每帧调 getBoundingClientRect 太贵。
+      注意不能叫 h —— Actor 用 this.h 存离地高度，会撞名。 */
+  pxH() {
     const vmin = Math.min(innerWidth, innerHeight) / 100;
     const g = this.stage.ground(this.u, this.v);
     return this.w * g.scale * vmin;
@@ -177,12 +180,15 @@ export class Pet extends Actor {
       if (d < step * 1.2 || d < 0.004) {
         this.u = this.tu; this.v = this.tv;
         this.tu = this.tv = null;
+        this.vu = this.vv = 0;
         this.setMode('idle');
         const f = this.onArrive; this.onArrive = null;
         if (f) f();
       } else {
-        this.u += du / d * step;
-        this.v += dv / d * step * 0.7;
+        const su = du / d * step, sv = dv / d * step * 0.7;
+        this.u += su;
+        this.v += sv;
+        this.vu = su / dt; this.vv = sv / dt;      // 给物理层：撞玩具的力度按这个算
         this.flip = du < 0;
       }
     }
@@ -195,7 +201,7 @@ export class Pet extends Actor {
 
     /* 所有幅度都以【自身身高】为基准，不能写死像素：
        屏幕越大宠物越大，7px 的起伏在 iPad 上等于没动。 */
-    const H = this.h();
+    const H = this.pxH();
 
     /* 跳跃 */
     if (this.jumpV !== 0 || this.jumpY > 0) {
