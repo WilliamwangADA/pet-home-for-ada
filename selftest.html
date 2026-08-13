@@ -59,15 +59,18 @@ async function main() {
   const hearts0 = G.state.hearts;
   G.serveFood('🍖', 300, 300);
   run(20);               // 0.6s 食物飞进盆
-  run(70);               // 走到盆边并开吃（约 2.3s；吃完 3s 后它们就散开了）
+  run(95);               // 走到盆边并开吃（吃 6 口约 3s 后它们就散开，要卡在吃的过程中检查）
   const bowlEl = fr.contentDocument.querySelector('img[src*="bowl_food"]').closest('.actor');
   const bowlA = G.stage.actors.find(a => a.el === bowlEl);
   const bowlU = bowlA.u, bowlV = bowlA.v;
-  const near = G.pets.filter(p => Math.hypot(p.u - bowlU, p.v - bowlV) < 0.20);
+  const near = G.pets.filter(p => Math.hypot(p.u - bowlU, (p.v - bowlV) * 0.62) < 0.20);
   check('全部宠物聚到食盆边', near.length === G.pets.length,
     `只有 ${near.length}/${G.pets.length} 只；盆@${bowlU},${bowlV}；`
     + G.pets.map(p => `${p.mode}@${p.u.toFixed(2)},${p.v.toFixed(2)}`).join(' '));
-  check('宠物正在吃', G.pets.every(p => p.mode === 'eat'), G.pets.map(p => p.mode).join(','));
+  check('宠物正在吃', G.pets.every(p => p.mode === 'eat'),
+    G.pets.map(p => `${p.mode}@${p.u.toFixed(3)},${p.v.toFixed(3)}`
+      + (p.tu !== null ? `→${p.tu.toFixed(3)},${p.tv.toFixed(3)}` : '(已到)')
+      + `[eat=${!!p.eating}]`).join('  '));
   check('宠物面朝食盆', G.pets.every(p => p.flip === (bowlU < p.u)),
     G.pets.map(p => `flip=${p.flip}@${p.u.toFixed(2)}`).join(' '));
   run(300);              // 吃完 + 结算
@@ -78,12 +81,15 @@ async function main() {
 
   head('2 · 洗澡：宠物要进到浴缸里');
   G.openBath();
-  run(400);              // 走过去 + 跳进缸，全部由主循环驱动
+  run(500);              // 走到缸边 → 跳进去 → 坐定，全部由主循环驱动
   check('浴缸出现了', G.flags.tub);
   check('进入洗澡状态', G.flags.bath);
   check('宠物在缸里 (inTub)', !!P().inTub);
-  check('宠物站到缸中心', Math.hypot(P().u - 0.74, P().v - 0.62) < 0.05,
+  check('宠物坐到缸中心', Math.hypot(P().u - 0.74, P().v - 0.62) < 0.05,
     `位置 ${P().u.toFixed(2)},${P().v.toFixed(2)}`);
+  check('在缸里是坐姿（比站姿更像泡澡）', P().pose === 'sit',
+    `pose=${P().pose} mode=${P().mode} frames=${(P().frames||[]).join('/')}`);
+  check('在缸里缩小到装得下', P().w < P().baseW0 * 0.85, `w=${P().w.toFixed(1)} base=${P().baseW0}`);
   check('宠物被抬高到水面', P().extraY > 10, `extraY=${P().extraY}`);
   const petZ = +P().el.style.zIndex, tubZ = +[...fr.contentDocument.querySelectorAll('.actor')]
     .filter(e => e.querySelector('img')?.src.includes('tub'))[0]?.style.zIndex;
@@ -97,9 +103,12 @@ async function main() {
 
   head('3 · 睡觉');
   G.toggleNight();
-  run(150);              // 5s：够走到窝里，又不到自动天亮的 9s
+  run(200);              // 够走到窝里躺下，又不到自动天亮的 9s
   check('进入夜晚', G.flags.night);
-  check('全部宠物躺下睡了', G.pets.every(p => p.mode === 'sleep'), G.pets.map(p => p.mode).join(','));
+  check('全部宠物躺下睡了', G.pets.every(p => p.mode === 'sleep'),
+    G.pets.map(p => `${p.mode}@${p.u.toFixed(2)},${p.v.toFixed(2)}`
+      + (p.tu !== null ? `→${p.tu.toFixed(2)},${p.tv.toFixed(2)}` : '(到)')).join('  ')
+      + ` 窝@${(G.furni.find(f=>f.def.id==='bed')||{}).u?.toFixed(2)},${(G.furni.find(f=>f.def.id==='bed')||{}).v?.toFixed(2)}`);
   const bed = G.furni.find(f => f.def.id === 'bed');
   if (bed) check('睡在狗窝附近', G.pets.every(p => Math.abs(p.v - bed.v) < 0.12));
   G.toggleNight();
@@ -153,7 +162,7 @@ async function main() {
   G.setActive(0);
 
   head('6.5 · 睡觉/洗澡中途切换不会锁死');
-  G.openBath(); run(400);
+  G.openBath(); run(500);
   check('洗澡已开始', G.flags.bath);
   G.goPark(); await sleep(950); run(60);
   check('洗澡中去院子会先收尾而不是卡住', G.scene === 'park' || !G.flags.bath, `scene=${G.scene} bath=${G.flags.bath}`);
@@ -213,12 +222,12 @@ async function main() {
   if (ballA && ballA.body) {
     freeze(true);
     // ① 踢一脚会飞、会往前滚、会自转
-    ballA.u = 0.35; ballA.v = 0.6; ballA.h = ballA.body.hr; ballA.spin = 0;
+    ballA.u = 0.30; ballA.v = 0.42; ballA.h = ballA.body.hr; ballA.spin = 0;   // 空地起步，别压在盆/碗上
     ballA.body.kick(0.9, 0, 0.5);
     run(3);
     check('踢一脚球会飞起来', ballA.h > ballA.body.hr + 0.001, `h=${ballA.h.toFixed(4)}`);
     run(18);
-    check('球会往前滚', ballA.u > 0.42, `u=${ballA.u.toFixed(3)}`);
+    check('球会往前滚', ballA.u > 0.37, `u=${ballA.u.toFixed(3)}`);
     check('球会自转（滚动感）', Math.abs(ballA.spin) > 5, `spin=${(ballA.spin || 0).toFixed(0)}`);
     // ② 没人碰时会自己停
     run(260);
@@ -227,7 +236,7 @@ async function main() {
     check('球不会滚出场景', ballA.u > 0 && ballA.u < 1 && ballA.v > 0 && ballA.v <= 1.02,
       `${ballA.u.toFixed(2)},${ballA.v.toFixed(2)}`);
     // ③ 撞墙反弹
-    ballA.u = 0.5; ballA.v = 0.6; ballA.h = ballA.body.hr;
+    ballA.u = 0.5; ballA.v = 0.42; ballA.h = ballA.body.hr;
     ballA.body.kick(2.0, 0, 0.05);
     run(50);
     check('球撞墙会反弹回来', ballA.body.vu <= 0.01,
@@ -235,9 +244,9 @@ async function main() {
     // ④ 宠物撞上去球会被撞飞
     freeze(false);
     for (const p of G.pets) { p.stop(); p.nextThink = 1e9; }
-    ballA.u = 0.5; ballA.v = 0.6; ballA.h = ballA.body.hr; ballA.body.stop();
+    ballA.u = 0.5; ballA.v = 0.42; ballA.h = ballA.body.hr; ballA.body.stop();
     const p0 = G.pets[0];
-    p0.u = 0.42; p0.v = 0.6; p0.vu = 0.6; p0.agent.vu = 0.6; p0.agent.vv = 0;
+    p0.u = 0.42; p0.v = 0.42; p0.vu = 0.6; p0.agent.vu = 0.6; p0.agent.vv = 0;
     const u0 = ballA.u;
     run(10);
     check('宠物撞上去球会被撞飞', ballA.u > u0 + 0.003 || ballA.h > ballA.body.hr + 0.002,
@@ -261,7 +270,20 @@ async function main() {
       + `agent数=${G.phys.agents.length} ghost=${p0.agent.ghost}`);
   } else line('warn', '  · 没有盆栽，跳过家具碰撞测试');
 
-  // ⑥ 宠物之间不重叠
+  // ⑥ 食盆是实心的：宠物不能站进盆里
+  const bowlEl2 = fr.contentDocument.querySelector('img[src*="bowl_food"]');
+  const bowlAct = bowlEl2 && G.stage.actors.find(a => a.el === bowlEl2.closest('.actor'));
+  const bowlStat = bowlAct && G.phys.statics.find(s2 => s2.actor === bowlAct);
+  if (bowlStat) {
+    const p0 = G.pets[0];
+    p0.stop(); p0.agent.ghost = false; p0.nextThink = 1e9;
+    p0.u = bowlStat.u; p0.v = bowlStat.v;
+    run(6);
+    const d = Math.hypot(p0.u - bowlStat.u, (p0.v - bowlStat.v) * 0.62);
+    check('宠物不会站进食盆里', d > bowlStat.r * 0.6, `距离 ${d.toFixed(3)} 半径 ${bowlStat.r}`);
+  } else line('warn', '  · 食盆没有碰撞体');
+
+  // ⑦ 宠物之间不重叠
   if (G.pets.length > 1) {
     G.pets[0].stop(); G.pets[1].stop();
     G.pets[0].agent.ghost = G.pets[1].agent.ghost = false;

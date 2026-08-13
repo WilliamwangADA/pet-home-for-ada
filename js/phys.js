@@ -177,6 +177,59 @@ export class Phys {
     }
   }
 
+  /** 这个点能不能站得下（不在任何硬障碍里）。
+      家具是可以被玩家拖走拖来的，所以"围着食盆的座位"必须动态检查，
+      否则水碗刚好压在某个座位上，那只宠物就永远走不到、吃不上饭。 */
+  isFree(u, v, r, ignore) {
+    const B = this.bounds;
+    if (u < B.u0 || u > B.u1 || v < B.v0 || v > B.v1) return false;
+    for (const s of this.statics) {
+      if (s.soft || s === ignore) continue;
+      const d = Math.hypot(u - s.u, (v - s.v) * V_SQUASH);
+      if (d < s.r + r * 0.85) return false;
+    }
+    return true;
+  }
+
+  /** 绕着某个点找一圈能站的位置（喂食围盆、睡觉围窝都用它） */
+  ringSpots(cu, cv, R, count, r, ignore) {
+    const out = [];
+    for (let i = 0; i < count * 3 && out.length < count; i++) {
+      const a = (i / (count * 3)) * Math.PI * 2 - Math.PI / 2;
+      const u = cu + Math.cos(a) * R;
+      const v = cv + Math.sin(a) * R / V_SQUASH;
+      if (!this.isFree(u, v, r, ignore)) continue;
+      // 和已选的点保持距离，免得两只宠物挤在一起互相推
+      if (out.some((p) => Math.hypot(p.u - u, (p.v - v) * V_SQUASH) < r * 2.1)) continue;
+      out.push({ u, v });
+    }
+    return out;
+  }
+
+  /** 避障：把"朝目标的方向"调整成"绕过障碍的方向"。
+      不做这一步的话，宠物只会直线走，一旦目标在障碍物对面，
+      它就会顶着障碍原地不动（走向食盆对面的座位时必然发生）。
+      做法是势场法：目标方向 + 附近障碍的侧向排斥力。 */
+  avoid(u, v, du, dv, r) {
+    let ax = du, az = dv;
+    for (const s of this.statics) {
+      if (s.soft) continue;
+      const ou = u - s.u, ov = (v - s.v) * V_SQUASH;
+      const d = Math.hypot(ou, ov);
+      const reach = s.r + r + 0.03;
+      if (d > reach || d < 1e-5) continue;
+      // 越近排斥越强；同时沿切线方向推一把，形成"绕行"而不是"顶牛"
+      const w = (reach - d) / reach;
+      ax += (ou / d) * w * 1.4;
+      az += (ov / d) * w * 1.4;
+      const side = (du * -ov + dv * ou) >= 0 ? 1 : -1;
+      ax += (-ov / d) * side * w * 1.1;
+      az += (ou / d) * side * w * 1.1;
+    }
+    const m = Math.hypot(ax, az) || 1;
+    return { du: ax / m, dv: az / m };
+  }
+
   /** 静止的玩具被宠物碰到时要先唤醒。
       不做这一步的话，停在地上的球会被 `if (b.sleep) continue` 直接跳过，
       宠物从它身上走过去也毫无反应 —— 看起来就是"根本没有碰撞"。 */

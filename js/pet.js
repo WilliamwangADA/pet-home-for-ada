@@ -185,7 +185,15 @@ export class Pet extends Actor {
         const f = this.onArrive; this.onArrive = null;
         if (f) f();
       } else {
-        const su = du / d * step, sv = dv / d * step * 0.7;
+        /* 先问物理层要一个避开障碍的方向，否则目标在家具对面时会顶着走不动。
+           但快到目标时必须关掉避障 —— 很多目标点（比如食盆四周的座位）
+           本来就贴着障碍，一直避障就会在目标附近被推来推去永远到不了。 */
+        let nu = du / d, nv = dv / d;
+        if (this.phys && d > 0.1) {
+          const a = this.phys.avoid(this.u, this.v, nu, nv, this.agent ? this.agent.r : 0.06);
+          nu = a.du; nv = a.dv;
+        }
+        const su = nu * step, sv = nv * step * 0.7;
         this.u += su;
         this.v += sv;
         this.vu = su / dt; this.vv = sv / dt;      // 给物理层：撞玩具的力度按这个算

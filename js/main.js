@@ -18,9 +18,11 @@ const MAX_PETS = 4;
 const ADOPT_PRICE = [0, 40, 70, 110];
 
 /* 场景固定点位（地面坐标 u 横向 / v 纵深，v=1 最近） */
+const TUB_W = 48;          // 浴缸宽度（vmin）
+const BATH_LIFT = 0.44;    // 宠物在缸里的抬高量（占缸高比例）
 const SPOT = {
   bowl: { u: 0.20, v: 0.74 },
-  water: { u: 0.33, v: 0.66 },
+  water: { u: 0.40, v: 0.60 },
   tub: { u: 0.74, v: 0.62 },
 };
 
@@ -109,6 +111,7 @@ function newPet(breed, name, opts = {}) {
     o: p, r: 0.062, vu: 0, vv: 0,
     onHit: (b) => onPetKick(p, b),
   });
+  p.phys = phys;                      // 移动时用它做避障
   if (!p.npc) bindPet(p);
   return p;
 }
@@ -371,12 +374,13 @@ function wiggleActor(a) {
 }
 
 /* ---------------- 场景 ---------------- */
-let bowlA, waterA, tubA;
+let bowlA, waterA, tubA, bowlStat = null;
 function clearScene() {
   pets = []; friend = null; nurseryPets = [];
   furniList = [];
-  bowlA = waterA = tubA = null;
+  bowlA = waterA = tubA = null; tubStat = null;
   bathOpen = false; groomMode = false;
+  for (const p of pets) { p.inTub = false; p.toTub = false; }
   if (groomTimer) { cancelTimer(groomTimer); groomTimer = null; }
   clearTimers();          // 上个场景挂起的回调不能打到新场景上
   phys.reset();           // 物理世界跟着场景一起重建
@@ -403,6 +407,8 @@ function buildHome(entering) {
   bowlA.setArt('props/bowl_food.png');
   bowlA.u = SPOT.bowl.u; bowlA.v = SPOT.bowl.v;
   stage.add(bowlA);
+  // 食盆是实心的：宠物只能围在盆边，不会站到盆里
+  bowlStat = phys.addStatic({ u: SPOT.bowl.u, v: SPOT.bowl.v, r: 0.052, actor: bowlA });
 
   waterA = new Actor(stage, { w: 15 });
   waterA.setArt('props/bowl_water.png');
@@ -410,8 +416,10 @@ function buildHome(entering) {
   waterA.el.style.pointerEvents = 'auto';
   waterA.el.addEventListener('pointerdown', (e) => {
     e.stopPropagation(); sfx.bubble(); particleAt(waterA, '💧', 2);
+    for (const p of pets) if (dist(waterA, p) < 0.2) { p.happy(1.6); p.think('💧', 1600); }
   });
   stage.add(waterA);
+  phys.addStatic({ u: SPOT.water.u, v: SPOT.water.v, r: 0.046, actor: waterA });
 
   for (const f of FURNI) if (state.decor[f.id]) spawnFurni(f);
 
@@ -582,11 +590,26 @@ function serveFood(emoji, fx, fy) {
     let done = 0;
     /* 围着盆站一圈：左右各一只、前面一只，都紧贴盆边（0.055 u ≈ 半个身位），
        之前偏移 0.10 u 又不转身，看起来像各吃各的。 */
-    const SEATS = [[-0.085, 0.035], [0.085, 0.035], [-0.065, -0.075], [0.065, -0.075]];
-    pets.forEach((p, i) => {
-      const [du, dv] = SEATS[i % SEATS.length];
+    /* 围着食盆排座位。半径要落在盆的碰撞圈外，彼此也要拉开，
+       而且必须避开旁边的家具（水碗、盆栽都可能压住某个座位）—— 
+       这些都交给 phys.ringSpots 动态算，写死坐标一定会出问题。 */
+    let seats = phys.ringSpots(SPOT.bowl.u, SPOT.bowl.v, 0.125, pets.length, 0.062, bowlStat);
+    if (seats.length < pets.length) {
+      seats = seats.concat(phys.ringSpots(SPOT.bowl.u, SPOT.bowl.v, 0.175, pets.length, 0.062, bowlStat));
+    }
+    const pickSeat = (p) => {
+      if (!seats.length) return { u: clamp(SPOT.bowl.u + rand(-0.2, 0.2), 0.06, 0.94), v: SPOT.bowl.v };
+      let bi = 0, bd = Infinity;
+      seats.forEach((sp, i) => {
+        const d = Math.hypot(sp.u - p.u, (sp.v - p.v) * 0.62);
+        if (d < bd) { bd = d; bi = i; }
+      });
+      return seats.splice(bi, 1)[0];
+    };
+    pets.forEach((p) => {
+      const seat = pickSeat(p);
       p.eating = true;                  // 从出发就免疫推挤，否则挤在盆边互相顶
-      p.goto(clamp(SPOT.bowl.u + du, 0.05, 0.95), clamp(SPOT.bowl.v + dv, 0.08, 0.98), () => {
+      p.goto(seat.u, seat.v, () => {
         p.faceTo(SPOT.bowl.u);            // 转身面向食盆
         p._bites = 6;                     // 低头啃的动画在 pet.update 里
         p.setMode('eat');
@@ -610,55 +633,77 @@ function serveFood(emoji, fx, fy) {
 }
 
 /* ---------------- 洗澡 ---------------- */
-let bathScrub = 0, bathMeter;
+let bathScrub = 0, bathMeter, tubStat = null;
 function buildBathMeter() {
   bathMeter = $(`<div id="bath-meter"><span class="st">✨</span><span class="st">✨</span><span class="st">✨</span></div>`);
   game.appendChild(bathMeter);
-}
-function openBath() {
+}function openBath() {
   if (nightOn || sceneName !== 'home') return;
   if (bathOpen) { finishBath(); return; }          // 再点一次 = 冲干净出来
   if (tubA) return;                                 // 正在走过去，别重复放缸
   cancelGroom(true);
   const p = APet();
   bathScrub = 0;
-  tubA = new Actor(stage, { w: 46 });
+
+  tubA = new Actor(stage, { w: TUB_W });
   tubA.setArt('props/tub.png');
   tubA.u = SPOT.tub.u; tubA.v = SPOT.tub.v;
   stage.add(tubA);
   tubA.el.animate([{ opacity: 0, transform: 'translateY(3vmin)' }, { opacity: 1, transform: 'none' }],
     { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+  // 浴缸是实心的：别的宠物挤不进去，球滚过来也会被弹开
+  tubStat = phys.addStatic({ u: SPOT.tub.u, v: SPOT.tub.v, r: 0.10, actor: tubA });
   sfx.splash();
   elfSay(`哗啦啦～带${p.name}泡个澡，在它身上搓出好多泡泡吧！`, 'bath_start', 5200);
-  // 其它宠物让开，别挡着缸
+
+  // 其它宠物让开
   for (const o of pets) if (o !== p) { o.stop(); o.goto(clamp(SPOT.tub.u - 0.34, 0.06, 0.9), rand(0.7, 0.95)); }
 
-  // 先走到缸边
-  p.goto(clamp(SPOT.tub.u - 0.13, 0.05, 0.95), SPOT.tub.v, () => {
-    p.jump(0.9);                                   // 跳进去
-    later(0.26, () => enterTub(p));
+  /* ① 先走到缸边。
+     注意：要洗澡的这只必须免疫浴缸的碰撞体，否则它一边朝缸走、
+     一边被自己的浴缸推开，永远走不到（目标点就在碰撞半径里）。 */
+  p.toTub = true;
+  p.goto(clamp(SPOT.tub.u - 0.19, 0.05, 0.95), clamp(SPOT.tub.v + 0.06, 0.1, 0.98), () => {
+    p.faceTo(SPOT.tub.u);
+    hopIntoTub(p);
   }, true);
 }
 
-/* 让宠物"在缸里"：画在浴缸【后面】+ 抬高到泡沫线，
-   于是缸的前壁自然遮住下半身，只露出上半身和脑袋。 */
-function enterTub(p) {
+/* ② 跳进浴缸：一条真的抛物线，落进缸里 */
+function hopIntoTub(p) {
   if (!tubA) return;
-  bathOpen = true;
-  p.inTub = true;
   p.stop();
+  p.inTub = true;                       // 这一刻起不再参与地面碰撞
+  bathOpen = true;
+  sfx.boing();
+  const u0 = p.u, v0 = p.v;
+  const tubH = tubA.artH() || innerHeight * 0.24;
+  const T = 0.42;                       // 起跳到落缸的时长
+  let t = 0;
+  const jump = repeat(1 / 60, Math.round(T * 60) + 1, () => {
+    t += 1 / 60;
+    const k = Math.min(1, t / T);
+    p.u = u0 + (SPOT.tub.u - u0) * k;
+    p.v = v0 + (SPOT.tub.v - v0) * k;
+    p.extraY = Math.sin(k * Math.PI) * tubH * 0.55 + tubH * BATH_LIFT * k;
+    if (k >= 1) { cancelTimer(jump); settleInTub(p, tubH); }
+  });
+}
+
+/* ③ 落定：坐在泡沫里，只露出脸和肩膀 */
+function settleInTub(p, tubH) {
+  if (!tubA) return;
   p.u = SPOT.tub.u; p.v = SPOT.tub.v;
-  p.setMode('idle');
-  /* 先缩小再抬高，顺序不能反 —— w 是在 setPose 里按 baseW 算的。
-     抬多少是离线把浴缸和宠物合成对比出来的：以宠物自身高度为基准抬 59%，
-     刚好露出整张脸、身体埋在泡沫里。
-     （拿缸高做基准量不准：.actor 高度是 0，得用宠物的 .rig 才量得到。） */
-  p.setScale(0.82);
-  p.extraY = (p.artHeight() || innerHeight * 0.25) * 0.59;
-  p.zOverride = 1000 + Math.round(SPOT.tub.v * 1000) - 6;   // 压在浴缸后面
+  p.setMode('sit');                                  // 坐姿比站姿更像"泡"在缸里
+  /* 宠物宽度按缸宽定：离线把缸和宠物合成对比出来的，
+     0.48 倍缸宽 + 抬高 0.44 倍缸高，刚好露出整张脸、身体埋在泡沫里。 */
+  p.setScale((TUB_W * 0.48) / (p.baseW0 * 0.92));
+  p.extraY = tubH * BATH_LIFT;
+  p.zOverride = 1000 + Math.round(SPOT.tub.v * 1000) - 6;   // 画在缸后面
   tubA.zOverride = 1000 + Math.round(SPOT.tub.v * 1000);
   sfx.splash();
-  particleAt(tubA, '💦', 4);
+  particleAt(tubA, '💦', 5);
+  for (let i = 0; i < 6; i++) spawnBubble(p);
   bathMeter.classList.add('show');
   bathMeter.querySelectorAll('.st').forEach(s => s.classList.remove('lit'));
 }
@@ -694,12 +739,22 @@ function finishBath() {
   bathMeter.classList.remove('show');
   later(0.7, () => {
     for (let i = 0; i < 12; i++) spawnBubble(p);
-    // 跳出浴缸
-    p.extraY = 0; p.inTub = false;
+    /* 跳出浴缸：先恢复尺寸和层级，再走一段落地弧线 */
     p.setScale(1);
+    p.setMode('idle');
     p.zOverride = null;
-    p.u = clamp(SPOT.tub.u - 0.15, 0.06, 0.94);
-    p.jump(1.1);
+    p.inTub = false; p.toTub = false;
+    const tubH = tubA ? (tubA.artH() || innerHeight * 0.24) : innerHeight * 0.24;
+    const uFrom = p.u, uTo = clamp(SPOT.tub.u - 0.16, 0.06, 0.94);
+    let t = 0;
+    sfx.boing();
+    const out = repeat(1 / 60, 26, () => {
+      t += 1 / 60;
+      const k = Math.min(1, t / 0.4);
+      p.u = uFrom + (uTo - uFrom) * k;
+      p.extraY = (1 - k) * tubH * BATH_LIFT + Math.sin(k * Math.PI) * tubH * 0.4;
+      if (k >= 1) { cancelTimer(out); p.extraY = 0; p.jump(0.5); }
+    });
     if (tubA) {
       const t = tubA; tubA = null;
       t.el.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateY(2vmin)' }], { duration: 400 })
@@ -761,10 +816,20 @@ function toggleNight() {
     trayEl.classList.remove('show');
     closeDrawers();
     const bed = furniList.find(f => f.def.id === 'bed');
+    // 围着狗窝找能躺的位置（同样要避开别的家具）
+    const bedU = bed ? bed.u : 0.5, bedV = bed ? bed.v : 0.7;
+    let spots = phys.ringSpots(bedU, bedV, bed ? 0.10 : 0.14, pets.length, 0.062, bed && bed.stat);
     pets.forEach((p, i) => {
-      const u = bed ? clamp(bed.u + (i - (pets.length - 1) / 2) * 0.09, 0.08, 0.92) : 0.42 + i * 0.1;
-      const v = bed ? bed.v : 0.7;
-      p.goto(u, v, () => p.setMode('sleep'));
+      const sp = spots[i] || { u: clamp(bedU + (i - (pets.length - 1) / 2) * 0.17, 0.08, 0.92), v: bedV };
+      /* 睡觉是过场性质的，就位途中直接免疫一切碰撞：
+         否则几只宠物挤在窝边互相推、又被旁边家具挡，永远躺不下。 */
+      p.settling = true;
+      if (p.agent) p.agent.ghost = true;
+      p.goto(sp.u, sp.v, () => {
+        p.settling = false;
+        if (p.agent) p.agent.ghost = false;
+        p.setMode('sleep');
+      });
     });
     sfx.night();
     elfSay('嘘——宝贝们要睡觉啦，晚安～', 'sleep', 5000);
@@ -775,7 +840,11 @@ function morning() {
   if (!nightOn) return;
   nightOn = false;
   game.classList.remove('is-night');
-  pets.forEach(p => { p.setMode('idle'); p.jump(0.7); p.happy(3); });
+  pets.forEach(p => {
+    p.settling = false;
+    if (p.agent) p.agent.ghost = false;
+    p.setMode('idle'); p.jump(0.7); p.happy(3);
+  });
   barkOf(APet());
   state.stats.energy = 100; save();
   sfx.chime();
@@ -1148,8 +1217,8 @@ function step(dt, time) {
     p.update(dt, time);
     if (p.agent) {
       p.agent.vu = p.vu || 0; p.agent.vv = p.vv || 0;
-      p.agent.ghost = !!p.inTub;
-      p.agent.noPush = p.mode === 'sleep' || p.eating || !!p.inTub;
+      p.agent.ghost = !!p.inTub || !!p.toTub || !!p.settling;
+      p.agent.noPush = p.mode === 'sleep' || p.eating || p.settling || !!p.inTub;
     }
     if (p.tu === null && p.mode === 'idle' && time > p.nextThink && !nightOn && !bathOpen && !groomMode) {
       p.nextThink = time + rand(3.5, 8);
@@ -1285,7 +1354,8 @@ if (QS.get('probe')) setInterval(() => {
   document.title = `PROBE scene=${sceneName} pets=${pets.length} friend=${!!friend} `
     + `night=${nightOn} bath=${bathOpen} groom=${groomMode} tub=${!!tubA} `
     + `p0=${a ? `${a.mode}/${a.u.toFixed(2)},${a.v.toFixed(2)}` + (a.tu !== null ? `→${a.tu.toFixed(2)},${a.tv.toFixed(2)}` : '') : '-'} `
-    + `inTub=${a && !!a.inTub} `
+    + `inTub=${a && !!a.inTub} w=${a ? a.w.toFixed(1) : '-'} base0=${a ? a.baseW0 : '-'} extraY=${a ? Math.round(a.extraY) : '-'} `
+    + `others=${pets.map(x => x.w.toFixed(0) + '@' + x.v.toFixed(2)).join(',')} `
     + `bg=${(stage.bgEl.getAttribute('src') || '').split('/').pop()} err=${window.__err || '-'}`;
 }, 700);
 

@@ -158,6 +158,9 @@ export class Actor {
     this._cur = file;
   }
 
+  /** 贴纸真实显示高度（px）。.actor 高度是 0，只能量 .rig */
+  artH() { return this.rig.getBoundingClientRect().height || 0; }
+
   draw() {
     if (this.wall) {
       this.el.style.width = this.w + 'vmin';
