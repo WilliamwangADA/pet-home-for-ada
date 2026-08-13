@@ -1,4 +1,5 @@
-/* ============ Ada的宠物小窝 · 主逻辑 v0.8.0（2.5D 手绘 + 真物理碰撞）============ */
+/* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
+export const VERSION = 'v0.9.0';
 import { Stage, Actor, ART } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -1322,6 +1323,11 @@ function nurseryPick(p) {
 }
 
 /* ---------------- 启动 ---------------- */
+/* 角落显示版本号：改完代码你能一眼确认自己看的是不是新版 */
+{
+  const v = document.getElementById('ver');
+  if (v) v.textContent = VERSION;
+}
 document.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
 const hasSave = load();
 if (hasSave) buildHome(); else buildAdoptScreen();

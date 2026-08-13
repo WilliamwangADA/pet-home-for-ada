@@ -169,6 +169,51 @@ async function main() {
   if (G.scene !== 'park') { G.goPark(); await sleep(950); run(60); }
   G.goHome(); await sleep(950); run(60);
 
+  head('6.8 · 换装（真的穿上）');
+  G.state.hearts = 500;
+  {
+    const p0 = G.pets[0];
+    G.setActive(0); run(5);
+    const wdItem = fr.contentDocument.querySelector('#wardrobe .wd-item[data-id="strawhat"]');
+    check('衣柜里有草帽', !!wdItem);
+    if (wdItem) {
+      wdItem.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true }));
+      run(10);
+      check('存档记录穿上了', G.state.pets[0].equipped.includes('strawhat'),
+        JSON.stringify(G.state.pets[0].equipped));
+      const worn = p0.el.querySelectorAll('.wear .wear-item');
+      check('宠物身上真的出现了服饰', worn.length > 0, `${worn.length} 件`);
+      if (worn.length) {
+        const im = worn[0];
+        const okSrc = im.getAttribute('src').includes('strawhat');
+        check('贴的是草帽', okSrc, im.getAttribute('src'));
+        const top = parseFloat(im.style.top), left = parseFloat(im.style.left);
+        const A = W.__game ? null : null;
+        check('帽子贴在头顶附近（不是飘在半空）', top >= 0 && top <= 40,
+          `top=${top}% left=${left}%`);
+        check('服饰宽度合理', parseFloat(im.style.width) > 10 && parseFloat(im.style.width) < 90,
+          im.style.width);
+      }
+      // 再点一次脱下
+      wdItem.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true }));
+      run(10);
+      check('再点一下能脱下来', !G.state.pets[0].equipped.includes('strawhat')
+        && p0.el.querySelectorAll('.wear .wear-item').length === 0);
+      // 同槽位互斥
+      const hat = fr.contentDocument.querySelector('#wardrobe .wd-item[data-id="strawhat"]');
+      const party = fr.contentDocument.querySelector('#wardrobe .wd-item[data-id="partyhat"]');
+      hat.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true })); run(5);
+      party.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true })); run(5);
+      check('同一个部位只能戴一件', G.state.pets[0].equipped.filter(id =>
+        ['strawhat', 'partyhat', 'bow', 'flower'].includes(id)).length === 1,
+        JSON.stringify(G.state.pets[0].equipped));
+      // 换装是按宠物记的
+      G.setActive(1); run(5);
+      check('换装是按每只宠物分别记录的', !G.state.pets[1].equipped.includes('partyhat'));
+      G.setActive(0);
+    }
+  }
+
   head('7 · 领养');
   G.state.hearts = 500;
   const before = G.pets.length;

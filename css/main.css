@@ -63,9 +63,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:#cfe3ee;
   border-radius:50%;transform:translate(-50%,50%)}
 .pet{pointer-events:auto;cursor:pointer;touch-action:none}
 .pet.npc{cursor:default}
-.pet .wear{position:absolute;left:0;bottom:0;width:100%;height:0}
-.pet .wear-item{position:absolute;transform-origin:50% 50%}
-.pet .wear{display:none}          /* 服饰锚点待逐品种校准，先隐藏 */
+/* 服饰层：和贴纸同一个包围盒，锚点按品种标注（见 data.js 的 anchor） */
+.pet .wear{position:absolute;inset:0;pointer-events:none;transition:opacity .25s}
+.pet .wear-item{position:absolute;transform-origin:50% 50%;
+  filter:drop-shadow(0 .2vmin .35vmin rgba(80,55,30,.22))}
+.pet .wear-item.behind{z-index:-1}
+.pet.hide-wear .wear{opacity:0}
 
 .thought{position:absolute;left:76%;bottom:9vmin;background:var(--card);
   border-radius:46% 46% 46% 12%;padding:1vmin 1.6vmin;font-size:4vmin;line-height:1;

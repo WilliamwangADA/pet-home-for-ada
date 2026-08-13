@@ -3,15 +3,23 @@
 
 /* ---------------- 品种 ----------------
    coat  毛色；build 体型比例；ear/tail 造型；pattern 花纹（画到贴图上） */
+/* anchor：服饰挂点，全部是【相对该品种贴纸包围盒】的比例。
+   每个品种头的位置都不一样（贴图里有的头在左、有的在右），
+   写一套通用坐标一定会让帽子飘在半空 —— 这些数是把贴纸打上
+   10% 网格后逐只读出来的。
+     head 头顶中心（帽子/花环/蝴蝶结）
+     face 眼睛高度（眼镜）
+     neck 脖子胸口（围巾/领结）
+     hw   头宽，服饰按它缩放 */
 export const BREEDS = {
-  shiba:  { kind: 'dog', label: '柴柴' },
-  corgi:  { kind: 'dog', label: '小柯基' },
-  golden: { kind: 'dog', label: '小金毛' },
-  bichon: { kind: 'dog', label: '云朵犬' },
-  calico: { kind: 'cat', label: '三花猫' },
-  orange: { kind: 'cat', label: '小橘猫' },
-  gray:   { kind: 'cat', label: '灰灰猫' },
-  tuxedo: { kind: 'cat', label: '奶牛猫' },
+  shiba:  { kind: 'dog', label: '柴柴',   anchor: { hx: 0.22, hy: 0.05, fy: 0.275, ny: 0.43, hw: 0.3 } },
+  corgi:  { kind: 'dog', label: '小柯基', anchor: { hx: 0.6, hy: 0.04, fy: 0.285, ny: 0.45, hw: 0.28 } },
+  golden: { kind: 'dog', label: '小金毛', anchor: { hx: 0.32, hy: 0.07, fy: 0.305, ny: 0.47, hw: 0.28 } },
+  bichon: { kind: 'dog', label: '云朵犬', anchor: { hx: 0.27, hy: 0.09, fy: 0.335, ny: 0.51, hw: 0.3 } },
+  calico: { kind: 'cat', label: '三花猫', anchor: { hx: 0.2, hy: 0.13, fy: 0.375, ny: 0.55, hw: 0.26 } },
+  orange: { kind: 'cat', label: '小橘猫', anchor: { hx: 0.3, hy: 0.13, fy: 0.375, ny: 0.55, hw: 0.26 } },
+  gray:   { kind: 'cat', label: '灰灰猫', anchor: { hx: 0.35, hy: 0.15, fy: 0.395, ny: 0.57, hw: 0.28 } },
+  tuxedo: { kind: 'cat', label: '奶牛猫', anchor: { hx: 0.42, hy: 0.05, fy: 0.315, ny: 0.51, hw: 0.26 } },
 };
 
 export const isCat = (b) => BREEDS[b] && BREEDS[b].kind === 'cat';
@@ -35,13 +43,17 @@ export const FURNI = [
 
 /* ---------------- 服饰 ----------------
    slot 同槽位互斥；贴图 assets/art/clothes/<id>.png */
+/* k  = 宽度相对宠物头宽的倍数
+   dx = 水平微调（相对头宽）
+   dy = 垂直微调（相对头宽，正=往下）
+   rot= 旋转角 */
 export const CLOTHES = [
-  { id: 'bow',      name: '红蝴蝶结', price: 10, slot: 'head', icon: '🎀', kind: 'bow' },
-  { id: 'strawhat', name: '小草帽',   price: 15, slot: 'head', icon: '👒', kind: 'strawhat' },
-  { id: 'partyhat', name: '派对帽',   price: 15, slot: 'head', icon: '🥳', kind: 'partyhat' },
-  { id: 'flower',   name: '小花环',   price: 18, slot: 'head', icon: '🌸', kind: 'flower' },
-  { id: 'scarf',    name: '暖暖围巾', price: 15, slot: 'neck', icon: '🧣', kind: 'scarf' },
-  { id: 'bowtie',   name: '绅士领结', price: 10, slot: 'neck', icon: '🤵', kind: 'bowtie' },
-  { id: 'glasses',  name: '圆圆眼镜', price: 12, slot: 'face', icon: '🤓', kind: 'glasses' },
-  { id: 'wings',    name: '天使翅膀', price: 25, slot: 'back', icon: '👼', kind: 'wings' },
+  { id: 'bow',      name: '红蝴蝶结', price: 10, slot: 'head', icon: '🎀', k: 0.62, dx: 0.34, dy: 0.16, rot: -14 },
+  { id: 'strawhat', name: '小草帽',   price: 15, slot: 'head', icon: '👒', k: 1.28, dx: 0, dy: 0.16 },
+  { id: 'partyhat', name: '派对帽',   price: 15, slot: 'head', icon: '🥳', k: 0.78, dx: 0.16, dy: -0.06, rot: 12 },
+  { id: 'flower',   name: '小花环',   price: 18, slot: 'head', icon: '🌸', k: 1.18, dx: 0, dy: 0.24 },
+  { id: 'scarf',    name: '暖暖围巾', price: 15, slot: 'neck', icon: '🧣', k: 1.15, dx: 0, dy: 0.1 },
+  { id: 'bowtie',   name: '绅士领结', price: 10, slot: 'neck', icon: '🤵', k: 0.62, dx: 0, dy: 0.06 },
+  { id: 'glasses',  name: '圆圆眼镜', price: 12, slot: 'face', icon: '🤓', k: 1.0, dx: 0, dy: 0 },
+  { id: 'wings',    name: '天使翅膀', price: 25, slot: 'back', icon: '👼', k: 1.9, dx: 0, dy: 0.9, behind: true },
 ];

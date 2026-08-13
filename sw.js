@@ -1,5 +1,5 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.8.1';
+const VER = 'pet-home-v0.9.0';
 const CORE = [
   './', 'index.html', 'css/main.css',
   'js/main.js', 'js/stage.js', 'js/pet.js', 'js/phys.js', 'js/data.js', 'js/audio.js', 'js/save.js',
@@ -49,21 +49,33 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
   const isAsset = url.pathname.includes('/assets/');
+
   if (isAsset) {
-    // 素材：缓存优先
-    e.respondWith(caches.match(e.request).then(hit => hit ||
-      fetch(e.request).then(res => {
-        if (res.ok) { const cl = res.clone(); caches.open(VER).then(c => c.put(e.request, cl)); }
+    /* 图片和音频：内容不会变，缓存优先，秒开 */
+    e.respondWith(caches.match(e.request).then((hit) => hit
+      || fetch(e.request).then((res) => {
+        if (res.ok) { const cl = res.clone(); caches.open(VER).then((c) => c.put(e.request, cl)); }
         return res;
       })));
-  } else {
-    // 核心：先用缓存秒开，后台更新
-    e.respondWith(caches.match(e.request).then(hit => {
-      const net = fetch(e.request).then(res => {
-        if (res.ok) { const cl = res.clone(); caches.open(VER).then(c => c.put(e.request, cl)); }
-        return res;
-      }).catch(() => hit);
-      return hit || net;
-    }));
+    return;
   }
+
+  /* 代码（html/js/css）：网络优先。
+     以前这里是"缓存优先、后台更新"，结果每次改完代码，用户打开
+     看到的还是上一版 —— 改了半天用户一点感觉不到，就是栽在这。
+     现在改成先拿网络，拿不到（离线）才回落缓存，离线可玩性不变。 */
+  e.respondWith((async () => {
+    try {
+      const res = await fetch(e.request, { cache: 'no-store' });
+      if (res && res.ok) {
+        const cl = res.clone();
+        caches.open(VER).then((c) => c.put(e.request, cl));
+      }
+      return res;
+    } catch (err) {
+      const hit = await caches.match(e.request);
+      if (hit) return hit;
+      throw err;
+    }
+  })());
 });

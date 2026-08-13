@@ -24,12 +24,15 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#cfe3ee;
 .paw{font-size:15vmin;animation:pawbob 1s ease-in-out infinite}
 @keyframes pawbob{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-2vmin) rotate(8deg)}}
 #boot p{color:#a5623a;font-size:3vmin;margin-top:2vmin;letter-spacing:.3em}
+#ver{position:fixed;right:.6vmin;bottom:.4vmin;z-index:5000;font-size:1.5vmin;
+  color:rgba(120,90,60,.55);pointer-events:none;letter-spacing:.05em}
 </style>
 <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
 <div id="boot"><div class="paw">🐾</div><p>小窝开门啦</p></div>
 <div id="game"></div>
+<div id="ver"></div>
 <script type="module" src="js/main.js"></script>
 <script>
 window.addEventListener('error',function(e){

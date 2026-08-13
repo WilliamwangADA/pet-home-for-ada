@@ -7,6 +7,7 @@
      · 睡觉    —— 更慢更深的呼吸 + 飘 z
    比逐帧动画省素材，比纯位移有生气。 */
 import { Actor } from './stage.js';
+import { BREEDS, CLOTHES } from './data.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -70,10 +71,12 @@ export class Pet extends Actor {
       t.textContent = opts.nametag;
       this.el.appendChild(t);
     }
-    /* 服饰挂层 */
+    /* 服饰挂层要放进 .rig 里：
+       .actor 的高度是 0，挂在它上面百分比定位算不出来；
+       放进 rig 还能跟着宠物一起翻转、摇摆、呼吸。 */
     this.wear = document.createElement('div');
     this.wear.className = 'wear';
-    this.el.appendChild(this.wear);
+    this.rig.appendChild(this.wear);
     this.setEquipped(opts.equipped || []);
   }
 
@@ -88,6 +91,9 @@ export class Pet extends Actor {
     this.setArt(`pets/${this.breed}_${this.frames[0]}.png`);
     this.w = this.baseW * (POSE_W[p] || 1);
     this.el.classList.toggle('sleeping', p === 'sleep');
+    /* 侧面走路图和睡姿图的头在完全不同的位置，用正面锚点会让帽子飘出去。
+       这两个姿态先把服饰淡出，回到正面姿态再显示。 */
+    this.el.classList.toggle('hide-wear', p === 'walk' || p === 'sleep');
   }
   /** 这张帧图能不能用（第二帧素材可能还没生成，404 时自动退回单帧） */
   has(f) {
@@ -121,14 +127,24 @@ export class Pet extends Actor {
               : 'idle');
   }
 
-  /* ---- 服饰：按锚点贴在贴纸上 ---- */
+  /* ---- 服饰：按【该品种的】锚点贴到贴纸上 ----
+     锚点是相对贴纸包围盒的比例，每个品种单独标注 —— 贴图里有的头在左
+     有的在右，用一套通用坐标帽子必然飘在半空。 */
   setEquipped(list) {
     this.equipped = (list || []).slice();
-    this.wear.innerHTML = this.equipped.map(id => {
-      const a = WEAR_ANCHOR[id] || WEAR_ANCHOR._default;
-      return `<img class="wear-item" src="assets/art/clothes/${id}.png"
-        style="left:${a.x}%;top:${a.y}%;width:${a.w}%;transform:translate(-50%,-50%) rotate(${a.r || 0}deg)">`;
+    const A = (BREEDS[this.breed] && BREEDS[this.breed].anchor) || { hx: 0.5, hy: 0.06, fy: 0.2, ny: 0.36, hw: 0.3 };
+    const html = this.equipped.map((id) => {
+      const c = CLOTHES.find((x) => x.id === id);
+      if (!c) return '';
+      const w = A.hw * (c.k || 1);                       // 宽度按头宽定
+      const x = A.hx + (c.dx || 0) * A.hw;
+      const y = (c.slot === 'neck' ? A.ny : c.slot === 'face' ? A.fy : c.slot === 'back' ? A.ny : A.hy)
+        + (c.dy || 0) * A.hw;
+      return `<img class="wear-item${c.behind ? ' behind' : ''}" src="assets/art/clothes/${id}.png"
+        style="left:${x * 100}%;top:${y * 100}%;width:${w * 100}%;
+               transform:translate(-50%,-50%) rotate(${c.rot || 0}deg)">`;
     }).join('');
+    this.wear.innerHTML = html;
   }
 
   /* ---- 动作 ---- */
