@@ -2,10 +2,12 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>自检</title>
+<title>⚠️ 自动测试页（不是游戏）</title>
 <style>
 body{margin:0;font:14px/1.7 -apple-system,"PingFang SC",monospace;background:#1d2229;color:#d8dee6}
-#wrap{display:flex;height:100vh}
+#banner{position:fixed;top:0;left:0;right:0;z-index:99;background:#8a2f22;color:#ffe;
+  padding:8px 14px;font-size:14px;font-weight:700;text-align:center}
+#wrap{display:flex;height:100vh;padding-top:36px;box-sizing:border-box}
 #log{width:560px;overflow:auto;padding:14px 16px;background:#171b21}
 #log h2{font-size:15px;margin:14px 0 6px;color:#8fd0ee}
 .ok{color:#7fd48b}.bad{color:#ff8b7d;font-weight:700}.warn{color:#ffcf6b}
@@ -15,6 +17,8 @@ iframe{flex:1;border:0;border-left:2px solid #333}
 </style>
 </head>
 <body>
+<div id="banner">⚠️ 这是自动测试页，不是游戏。右边的宠物正在被脚本自动操作。
+  <a href="index.html" style="color:#ffd479">→ 点这里去游戏</a></div>
 <div id="wrap">
   <div id="log"><div id="sum">正在载入游戏…</div><div id="out"></div></div>
   <iframe id="fr" src="seed-test.html?pets=shiba,calico,golden&decor=1&nosw=1"></iframe>
