@@ -64,9 +64,9 @@ async function main() {
   G.serveFood('🍖', 300, 300);
   run(20);               // 0.6s 食物飞进盆
   run(95);               // 走到盆边并开吃（吃 6 口约 3s 后它们就散开，要卡在吃的过程中检查）
-  const bowlEl = fr.contentDocument.querySelector('img[src*="bowl_food"]').closest('.actor');
-  const bowlA = G.stage.actors.find(a => a.el === bowlEl);
-  const bowlU = bowlA.u, bowlV = bowlA.v;
+  const bowlEl = fr.contentDocument.querySelector('.actor img[src*="bowl_"]').closest('.actor');
+  const bowlAct = G.stage.actors.find(a => a.el === bowlEl);
+  const bowlU = bowlAct.u, bowlV = bowlAct.v;
   const near = G.pets.filter(p => Math.hypot(p.u - bowlU, (p.v - bowlV) * 0.62) < 0.20);
   check('全部宠物聚到食盆边', near.length === G.pets.length,
     `只有 ${near.length}/${G.pets.length} 只；盆@${bowlU},${bowlV}；`
@@ -82,6 +82,27 @@ async function main() {
   check('吃完退出进食状态', G.pets.every(p => p.mode !== 'eat' && !p.eating),
     G.pets.map(p => p.mode + (p.eating ? '(eating)' : '')).join(','));
   check('饱腹度回满', G.state.stats.hunger === 100);
+
+  head('1.5 · 食盆状态：吃完要变空');
+  {
+    const bowlImg = () => {
+      const im = bowlAct && bowlAct.img;
+      return im ? im.getAttribute('src').split('/').pop() : '?';
+    };
+    check('没喂饭时盆是空的', bowlImg() === 'bowl_empty.png', bowlImg());
+    G.serveFood('🍖', 300, 300);
+    run(25);
+    check('倒进去后盆是满的', bowlImg() === 'bowl_food.png', bowlImg());
+    run(150);
+    const mid = bowlImg();
+    check('吃到一半盆里只剩半碗', mid === 'bowl_half.png' || mid === 'bowl_empty.png', mid);
+    run(320);
+    check('吃完盆空了', bowlImg() === 'bowl_empty.png', bowlImg());
+    check('三张碗图都能加载', ['bowl_food', 'bowl_half', 'bowl_empty'].every((n) => {
+      const im = bowlAct.imgs.get(`props/${n}.png`);
+      return im && im.complete && im.naturalWidth > 0;
+    }), '有图 404');
+  }
 
   head('2 · 洗澡：宠物要进到浴缸里');
   G.openBath();
@@ -320,9 +341,9 @@ async function main() {
   } else line('warn', '  · 没有盆栽，跳过家具碰撞测试');
 
   // ⑥ 食盆是实心的：宠物不能站进盆里
-  const bowlEl2 = fr.contentDocument.querySelector('img[src*="bowl_food"]');
-  const bowlAct = bowlEl2 && G.stage.actors.find(a => a.el === bowlEl2.closest('.actor'));
-  const bowlStat = bowlAct && G.phys.statics.find(s2 => s2.actor === bowlAct);
+  const bowlEl2 = fr.contentDocument.querySelector('.actor img[src*="bowl_"]');
+  const bowlAct6 = bowlEl2 && G.stage.actors.find(a => a.el === bowlEl2.closest('.actor'));
+  const bowlStat = bowlAct6 && G.phys.statics.find(s2 => s2.actor === bowlAct6);
   if (bowlStat) {
     const p0 = G.pets[0];
     p0.stop(); p0.agent.ghost = false; p0.nextThink = 1e9;

@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.9.0';
+export const VERSION = 'v0.9.1';
 import { Stage, Actor, ART } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -405,7 +405,11 @@ function buildHome(entering) {
   stage.setScene('home', { bg: 'bg_home.jpg' });
 
   bowlA = new Actor(stage, { w: 17 });
-  bowlA.setArt('props/bowl_food.png');
+  // 三张状态图都先建好，切换时零延迟
+  bowlA.addArt('props/bowl_food.png');
+  bowlA.addArt('props/bowl_half.png');
+  bowlA.addArt('props/bowl_empty.png');
+  bowlA.setArt('props/bowl_empty.png');      // 没喂饭时盆是空的
   bowlA.u = SPOT.bowl.u; bowlA.v = SPOT.bowl.v;
   stage.add(bowlA);
   // 食盆是实心的：宠物只能围在盆边，不会站到盆里
@@ -586,9 +590,12 @@ function serveFood(emoji, fx, fy) {
   sfx.pop();
   later(0.6, () => {
     fly.remove();
+    bowlA.setArt('props/bowl_food.png');       // 倒进去，满上
     bowlA.el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }],
       { duration: 380, easing: 'ease-out' });
     let done = 0;
+    const maxBites = pets.length * 6;
+    let totalBites = maxBites;
     /* 围着盆站一圈：左右各一只、前面一只，都紧贴盆边（0.055 u ≈ 半个身位），
        之前偏移 0.10 u 又不转身，看起来像各吃各的。 */
     /* 围着食盆排座位。半径要落在盆的碰撞圈外，彼此也要拉开，
@@ -617,11 +624,18 @@ function serveFood(emoji, fx, fy) {
         repeat(0.52, 6, () => {
           sfx.munch();
           particleAt(bowlA, pick(['✦', '·', '✧']), 1);
+          /* 碗里的粮跟着一口口减少：全家总共吃 pets.length×6 口，
+             吃掉一半换半碗图，吃光换空碗图 */
+          totalBites--;
+          const left = totalBites / maxBites;
+          bowlA.setArt(left <= 0.02 ? 'props/bowl_empty.png'
+            : left < 0.5 ? 'props/bowl_half.png' : 'props/bowl_food.png');
           if (--p._bites <= 0) {
             p.eating = false;
             p.setMode('idle');
             p.happy(3); p.jump(0.6); barkOf(p); p.think('😋');
             if (++done === pets.length) {
+              bowlA.setArt('props/bowl_empty.png');   // 舔干净了
               state.stats.hunger = 100; save();
               addHearts(5 * pets.length, bowlA);
               elfSay(pets.length > 1 ? '大家都吃饱啦，肚子圆滚滚！' : '吃得真香呀～肚子圆滚滚！', 'feed_done');

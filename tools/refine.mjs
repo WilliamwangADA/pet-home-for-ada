@@ -1,27 +1,39 @@
 #!/usr/bin/env node
-/* 用当前的 key.mjs 参数重新收边：对已抠好的 PNG 再腐蚀一圈，清掉残留粉边。
-   （原始 raw 图在抠完后已删除，所以只能在成品上补一刀。） */
+/* 贴纸边缘收紧：把抠图残留的半透明粉边削掉。
+
+   ⚠️ 必须幂等：这个脚本每跑一次就腐蚀一圈 alpha，
+   重复跑会把细的部分越吃越薄，最后整块消失
+   （食盆的碗体就是这么被吃没的）。
+   所以用 .refined.json 记住处理过的文件，跳过已处理的。 */
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const dirs = ['assets/art/pets', 'assets/art/furni', 'assets/art/props', 'assets/art/clothes', 'assets/art/bg'];
-let n = 0;
-for (const d of dirs) {
+const DIRS = ['assets/art/pets', 'assets/art/furni', 'assets/art/props', 'assets/art/clothes'];
+const LOG = 'assets/art/.refined.json';
+const done = fs.existsSync(LOG) ? JSON.parse(fs.readFileSync(LOG, 'utf8')) : {};
+const force = process.argv.includes('--force');
+let n = 0, skip = 0;
+
+for (const d of DIRS) {
   if (!fs.existsSync(d)) continue;
   for (const f of fs.readdirSync(d)) {
-    if (!f.endsWith('.png') || f.startsWith('bg_')) continue;   // bg_ 是不透明大图，跳过
+    if (!f.endsWith('.png') || f.endsWith('_raw.png')) continue;
     const p = path.join(d, f);
-    const tmp = p.replace('.png', '_r.png');
-    // 只处理带 alpha 的贴纸
+    const st = fs.statSync(p);
+    const sig = `${st.size}:${Math.round(st.mtimeMs)}`;
+    if (!force && done[p] === sig) { skip++; continue; }
     const hasAlpha = execFileSync('magick', [p, '-format', '%A', 'info:']).toString().trim();
-    if (hasAlpha !== 'Blend' && hasAlpha !== 'True') continue;
+    if (hasAlpha !== 'Blend' && hasAlpha !== 'True') { done[p] = sig; continue; }
+    const tmp = p.replace('.png', '_r.png');
     execFileSync('magick', [p,
-      // 半透明边缘里混着品红 → 先把这些像素直接判为透明
       '-channel', 'A', '-morphology', 'Erode', 'Disk:1.5', '-blur', '0x0.5', '+channel',
       '-trim', '+repage', tmp]);
     fs.renameSync(tmp, p);
+    const st2 = fs.statSync(p);
+    done[p] = `${st2.size}:${Math.round(st2.mtimeMs)}`;
     n++;
   }
 }
-console.log(`✅ 收边完成 ${n} 张`);
+fs.writeFileSync(LOG, JSON.stringify(done, null, 1));
+console.log(`✅ 收边 ${n} 张，跳过已处理 ${skip} 张`);
