@@ -173,6 +173,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:#cfe3ee;
 #name-grid .btn{border-radius:3vmin;font-size:4vmin;padding:2vmin 4.6vmin;color:var(--text);
   font-weight:700;width:auto;height:auto;background:#fff}
 
+/* 洗澡/梳毛时的全屏搓动层：整屏都能搓，不必精确点中宠物。
+   层级低于 HUD 和工具栏，所以按钮照样能点。 */
+#brush-layer{position:absolute;inset:0;z-index:2900;display:none;
+  touch-action:none;cursor:grab;pointer-events:auto}
+#brush-layer.on{display:block}
+
 /* ---------- 洗澡进度 ---------- */
 #bath-meter{position:absolute;top:max(15vmin,calc(env(safe-area-inset-top) + 13vmin));left:50%;
   transform:translateX(-50%) scale(.7);display:flex;gap:1.6vmin;font-size:5.6vmin;z-index:3100;

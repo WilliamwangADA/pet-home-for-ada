@@ -1,5 +1,5 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.9.1';
+const VER = 'pet-home-v0.9.2';
 const CORE = [
   './', 'index.html', 'css/main.css',
   'js/main.js', 'js/stage.js', 'js/pet.js', 'js/phys.js', 'js/data.js', 'js/audio.js', 'js/save.js',

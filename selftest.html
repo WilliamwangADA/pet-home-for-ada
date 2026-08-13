@@ -120,6 +120,23 @@ async function main() {
     .filter(e => e.querySelector('img')?.src.includes('tub'))[0]?.style.zIndex;
   check('宠物画在浴缸后面（才像在缸里）', petZ < tubZ, `pet z=${petZ} tub z=${tubZ}`);
   check('洗澡时宠物不乱走', P().tu === null);
+  // 用【全屏搓动层】走真实输入路径，而不是直接调函数
+  const bl = fr.contentDocument.getElementById('brush-layer');
+  check('洗澡时出现全屏搓动层', !!bl && bl.classList.contains('on'),
+    bl ? bl.className : '没有这个层');
+  if (bl && bl.classList.contains('on')) {
+    const before = G.state.stats.clean;
+    bl.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 300, pointerId: 1 }));
+    for (let i = 0; i < 30; i++) {
+      bl.dispatchEvent(new W.PointerEvent('pointermove', {
+        bubbles: true, clientX: 200 + (i % 2 ? 60 : 0), clientY: 300 + i * 3, pointerId: 1,
+      }));
+      run(2);
+    }
+    bl.dispatchEvent(new W.PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+    check('在屏幕任意处划动就能搓出泡泡', !G.flags.bath || G.state.stats.clean > before,
+      `bath=${G.flags.bath} clean=${G.state.stats.clean}`);
+  }
   for (let i = 0; i < 25; i++) { G.scrubProgress(); run(4); }
   run(200);
   check('搓完自动结束', !G.flags.bath);
@@ -145,6 +162,10 @@ async function main() {
   run(60);
   check('进入梳毛状态', G.flags.groom);
   check('梳毛时宠物坐下不乱跑', P().mode === 'sit' && P().tu === null, P().mode);
+  {
+    const bl2 = fr.contentDocument.getElementById('brush-layer');
+    check('梳毛时也有全屏搓动层', !!bl2 && bl2.classList.contains('on'));
+  }
   // 再点一次应该能收工 —— 不然状态会永久卡住
   G.startGroom();
   run(20);

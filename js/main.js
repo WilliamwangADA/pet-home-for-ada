@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.9.1';
+export const VERSION = 'v0.9.2';
 import { Stage, Actor, ART } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -382,6 +382,7 @@ function clearScene() {
   bowlA = waterA = tubA = null; tubStat = null;
   bathOpen = false; groomMode = false;
   for (const p of pets) { p.inTub = false; p.toTub = false; }
+  if (brushLayer) brushLayer.classList.remove('on');
   if (groomTimer) { cancelTimer(groomTimer); groomTimer = null; }
   clearTimers();          // 上个场景挂起的回调不能打到新场景上
   phys.reset();           // 物理世界跟着场景一起重建
@@ -538,7 +539,7 @@ function buildUI(kind) {
   });
   game.appendChild(bar);
 
-  if (kind === 'home') { buildTray(); buildShop(); buildWardrobe(); buildAdoptHouse(); buildBathMeter(); }
+  if (kind === 'home') { buildTray(); buildShop(); buildWardrobe(); buildAdoptHouse(); buildBathMeter(); buildBrushLayer(); }
 }
 
 function refreshChips() {
@@ -558,6 +559,41 @@ function setActive(i) {
   sfx.pip();
   const p = pets[i];
   if (p) { p.jump(0.6); p.think('💗', 1400); }
+}
+
+/* ---------------- 全屏搓/梳层 ----------------
+   洗澡时宠物大半个身子被浴缸挡着，梳毛时也未必点得准 ——
+   要求"精确点在宠物身上才算搓"对 5 岁孩子不现实，
+   手指落在宠物外面还会变成拖画面。所以这两个模式下整个屏幕都能搓。 */
+let brushLayer = null;
+function buildBrushLayer() {
+  brushLayer = $('<div id="brush-layer"></div>');
+  let last = null, acc = 0;
+  brushLayer.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    brushLayer.setPointerCapture(e.pointerId);
+    last = { x: e.clientX, y: e.clientY };
+    acc = 0;
+  });
+  brushLayer.addEventListener('pointermove', (e) => {
+    if (!last) return;
+    const dx = e.clientX - last.x, dy = e.clientY - last.y;
+    last = { x: e.clientX, y: e.clientY };
+    acc += Math.hypot(dx, dy);
+    if (bathOpen) {
+      if (acc > 34) { acc = 0; scrubProgress(e.clientX, e.clientY); }
+    } else if (groomMode) {
+      if (acc > 70) { acc = 0; groomProgress(e.clientX, e.clientY); }
+    }
+  });
+  const up = () => { last = null; };
+  brushLayer.addEventListener('pointerup', up);
+  brushLayer.addEventListener('pointercancel', up);
+  game.appendChild(brushLayer);
+}
+function setBrushLayer(on) {
+  if (!brushLayer) return;
+  brushLayer.classList.toggle('on', !!on);
 }
 
 /* ---------------- 吃饭 ---------------- */
@@ -721,9 +757,10 @@ function settleInTub(p, tubH) {
   for (let i = 0; i < 6; i++) spawnBubble(p);
   bathMeter.classList.add('show');
   bathMeter.querySelectorAll('.st').forEach(s => s.classList.remove('lit'));
+  setBrushLayer(true);
 }
 
-function scrubProgress() {
+function scrubProgress(x, y) {
   bathScrub += 34;
   const p = APet();
   if (Math.random() < 0.8) spawnBubble(p);
@@ -733,13 +770,15 @@ function scrubProgress() {
   p.happy(1.6);
   if (lit >= 3) finishBath();
 }
-function spawnBubble(p) {
+function spawnBubble(p, x, y) {
   const r = p.el.getBoundingClientRect();
   const b = document.createElement('img');
   b.className = 'pfx';
   b.src = ART + 'props/bubble.png';
   const s = rand(3, 7);
-  b.style.cssText = `left:${r.left + rand(0, r.width)}px;top:${r.top + rand(0, r.height * 0.6)}px;
+  const bx = x !== undefined ? x + rand(-24, 24) : r.left + rand(0, r.width);
+  const by = y !== undefined ? y + rand(-24, 24) : r.top + rand(0, r.height * 0.6);
+  b.style.cssText = `left:${bx}px;top:${by}px;
     width:${s}vmin;height:auto;animation:pfly 1.5s ease-out forwards`;
   b.style.setProperty('--dx', rand(-5, 5) + 'vmin');
   b.style.setProperty('--dy', rand(-18, -10) + 'vmin');
@@ -749,6 +788,7 @@ function spawnBubble(p) {
 function finishBath() {
   if (!bathOpen) return;
   bathOpen = false;
+  setBrushLayer(false);
   const p = APet();
   sfx.splash(); sfx.sparkle();
   bathMeter.classList.remove('show');
@@ -789,6 +829,7 @@ function startGroom() {
   if (nightOn || bathOpen || sceneName !== 'home') return;
   if (groomMode) { cancelGroom(); return; }        // 再点一次 = 收工
   groomMode = true; groomCount = 0;
+  setBrushLayer(true);
   const p = APet();
   p.stop(); p.setMode('sit');
   elfSay(`在${activePet().name}身上轻轻划一划，给它做个美容～`, 'brush_start', 5000);
@@ -800,6 +841,7 @@ function startGroom() {
 function cancelGroom(quiet) {
   if (!groomMode) return;
   groomMode = false;
+  setBrushLayer(false);
   if (groomTimer) cancelTimer(groomTimer); groomTimer = null;
   const p = APet();
   if (p && p.mode === 'sit') p.setMode('idle');
