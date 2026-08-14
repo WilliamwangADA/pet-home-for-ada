@@ -1,12 +1,12 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.10.0';
+const VER = 'pet-home-v0.11.0';
 const CORE = [
   './', 'index.html', 'css/main.css',
   'js/main.js', 'js/stage.js', 'js/pet.js', 'js/phys.js', 'js/data.js', 'js/audio.js', 'js/save.js',
   'manifest.webmanifest',
 ];
 const ART = [
-  'bg/bg_home.jpg', 'bg/bg_park.jpg', 'bg/bg_adopt.jpg',
+  'bg/bg_home_wide.jpg', 'bg/bg_park_wide.jpg', 'bg/bg_adopt.jpg',
   ...['shiba','corgi','golden','bichon','calico','orange','gray','tuxedo']
       .flatMap(b => ['idle','idle_b','walk','walk_b','sit','sleep','happy','happy_b','baby']
         .map(p => `pets/${b}_${p}.png`)),

@@ -17,7 +17,10 @@ html,body{margin:0;height:100%;overflow:hidden;background:#cfe3ee;
   width:112%;height:112%;object-fit:cover;
   transform:translate(-50%,-50%);margin-left:0;
   will-change:transform;transform-origin:50% 50%}
-.stage .bg{left:0;top:0;width:106%;height:106%;transform:none;margin-left:-3%;margin-top:-3%}
+/* 背景按【世界宽度】铺开（比屏幕宽），靠 transform 平移露出左右 */
+/* 宽度由 stage.update 按世界宽度动态设置；用 fill 保证整张图完整对应世界 */
+.stage .bg{left:0;top:0;width:140%;height:100%;object-fit:fill;
+  transform:none;margin:0;will-change:transform}
 /* 前景遮挡层：只压在画面最底部一条，制造纵深。
    之前是铺满整屏，巨大的叶子把宠物和家具全挡住了。 */
 .stage .fg{left:-4%;top:auto;bottom:-2%;width:108%;height:34%;

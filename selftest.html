@@ -114,7 +114,13 @@ async function main() {
     `位置 ${P().u.toFixed(2)},${P().v.toFixed(2)}`);
   check('在缸里是坐姿（比站姿更像泡澡）', P().pose === 'sit',
     `pose=${P().pose} mode=${P().mode} frames=${(P().frames||[]).join('/')}`);
-  check('在缸里缩小到装得下', P().w < P().baseW0 * 0.85, `w=${P().w.toFixed(1)} base=${P().baseW0}`);
+  // 语义是"缸装得下宠物"，所以直接和缸比，别和自身基准比（基准会调）
+  {
+    const tubEl = fr.contentDocument.querySelector('.actor img[src*="tub"]');
+    const tubAct = tubEl && G.stage.actors.find((a) => a.el === tubEl.closest('.actor'));
+    check('在缸里缩小到装得下', !!tubAct && P().w < tubAct.w * 0.6,
+      `宠物 ${P().w.toFixed(1)} vs 缸 ${tubAct ? tubAct.w : '?'}`);
+  }
   check('宠物被抬高到水面', P().extraY > 10, `extraY=${P().extraY}`);
   const petZ = +P().el.style.zIndex, tubZ = +[...fr.contentDocument.querySelectorAll('.actor')]
     .filter(e => e.querySelector('img')?.src.includes('tub'))[0]?.style.zIndex;

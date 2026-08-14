@@ -8,13 +8,25 @@
 export const ART = 'assets/art/';
 
 /* 地面梯形：屏幕比例坐标。宠物只在这个区域里活动 */
-/* 按背景图实际构图逐张量出来的可站立区域：
-   home —— 榻榻米+木廊只在画面最下方 74%~99%，远端被门框收窄
-   park —— 草地从 60% 一直铺到底 */
+/* 按背景图实际构图逐张量出来的可站立区域。
+   宽版背景是 21:9，比屏幕宽 —— 世界横向比屏幕大 WORLD_W 倍，
+   镜头只显示其中一段，拖背景可以左右看。 */
 export const GROUND = {
-  home: { yNear: 0.90, yFar: 0.74, xNear: 0.02, xFar: 0.22 },
-  park: { yNear: 0.92, yFar: 0.60, xNear: -0.02, xFar: 0.18 },
+  home: { yNear: 0.90, yFar: 0.72, xNear: 0.02, xFar: 0.16 },
+  park: { yNear: 0.92, yFar: 0.58, xNear: -0.02, xFar: 0.14 },
 };
+/* 世界宽度（1 = 一屏宽），按【背景图宽高比 ÷ 屏幕宽高比】动态算：
+   21:9 的背景铺满屏幕高度后，横向能显示多少屏就是多少。
+   写死的话，换个屏幕比例（iPad 4:3 vs 手机 16:9）角色就会和背景错位。 */
+export const BG_ASPECT = 3360 / 1440;          // 宽版背景的宽高比
+export let WORLD_W = 1.4;
+export function calcWorldW() {
+  const screen = innerWidth / innerHeight;
+  WORLD_W = Math.max(1.05, Math.min(2.2, BG_ASPECT / screen));
+  return WORLD_W;
+}
+calcWorldW();
+addEventListener('resize', () => calcWorldW());
 
 /* 近大远小：depth 0=最远 1=最近 */
 export const SCALE_FAR = 0.52, SCALE_NEAR = 1.0;
@@ -35,7 +47,11 @@ export class Stage {
     this.fgEl = this.el.querySelector('.fg');
     this.worldEl = this.el.querySelector('.world');
     this.airEl = this.el.querySelector('.air');
-    this.pan = 0; this.panT = 0;
+    /* camU：镜头左边缘在世界里的位置，范围 [0, WORLD_W-1]。
+       0 = 看最左边，WORLD_W-1 = 看最右边 */
+    calcWorldW();
+    this.camU = (WORLD_W - 1) / 2;
+    this.camT = this.camU;
     this.scene = 'home';
     this.actors = [];
   }
@@ -73,13 +89,26 @@ export class Stage {
     this.airEl.innerHTML = html;
   }
 
-  /* 屏幕比例 → 地面坐标。u:0~1 横向, v:0~1 纵深(0=最远) */
+  /* 世界坐标 → 屏幕比例。
+     u:0~1 是在【整个房间】里的横向位置（不是屏幕位置），
+     v:0~1 是纵深（0=最远）。屏幕只显示世界的一段，所以要减去镜头位置。 */
   ground(u, v) {
     const g = GROUND[this.scene] || GROUND.home;
     const y = g.yFar + (g.yNear - g.yFar) * v;
     const inset = g.xFar + (g.xNear - g.xFar) * v;
-    const x = inset + (1 - inset * 2) * u;
-    return { x, y, scale: SCALE_FAR + (SCALE_NEAR - SCALE_FAR) * v };
+    const worldX = inset + (WORLD_W - inset * 2) * u;   // 在世界里的横向位置
+    return {
+      x: worldX - this.camU,                            // 转成屏幕比例
+      y,
+      scale: SCALE_FAR + (SCALE_NEAR - SCALE_FAR) * v,
+    };
+  }
+
+  /* 屏幕比例 → 世界 u（拖家具、点地面时用） */
+  screenToU(sx, v) {
+    const g = GROUND[this.scene] || GROUND.home;
+    const inset = g.xFar + (g.xNear - g.xFar) * v;
+    return (sx + this.camU - inset) / (WORLD_W - inset * 2);
   }
 
   add(actor) {
@@ -92,17 +121,32 @@ export class Stage {
     this.actors = this.actors.filter(a => a !== actor);
   }
 
-  /* 镜头轻微横摇（手指拖背景），背景/前景走不同速度 = 视差 */
-  nudge(dx) { this.panT = Math.max(-1, Math.min(1, this.panT + dx / innerWidth * 2.2)); }
-  release() { this.panT *= 0.3; }
+  /* 拖背景 = 平移镜头，能看到房间左右两边 */
+  nudge(dx) {
+    this.camT = Math.max(0, Math.min(WORLD_W - 1, this.camT - dx / innerWidth));
+  }
+  release() {}
+  /** 把镜头对准世界里的某个横向位置（跟随宠物用） */
+  lookAt(u, k = 1) {
+    const want = Math.max(0, Math.min(WORLD_W - 1, u * WORLD_W - 0.5));
+    this.camT += (want - this.camT) * k;
+  }
 
   update(dt) {
-    this.pan += (this.panT - this.pan) * Math.min(1, dt * 5);
-    const p = this.pan;
-    this.bgEl.style.transform = `translate3d(${-p * 2.2}%, 0, 0) scale(1.06)`;
-    this.fgEl.style.transform = `translate3d(${-p * 6.5}%, 0, 0) scale(1.04)`;
-    this.worldEl.style.transform = `translate3d(${-p * 4.0}%, 0, 0)`;
-    // 纸片按纵深排序，近的盖住远的
+    // 背景宽度 = 世界宽度，两者必须一致，否则角色会和背景对不上
+    const wPct = WORLD_W * 100;
+    if (this._bgW !== wPct) {
+      this._bgW = wPct;
+      this.bgEl.style.width = wPct + '%';
+      this.fgEl.style.width = wPct + '%';
+    }
+    this.camT = Math.max(0, Math.min(WORLD_W - 1, this.camT));
+    this.camU += (this.camT - this.camU) * Math.min(1, dt * 6);
+    /* 背景按世界宽度铺开，跟着镜头平移；
+       比例是 1:1（背景就是世界本身），所以不会和角色错位 */
+    const bgShift = -this.camU / WORLD_W * 100;
+    this.bgEl.style.transform = `translate3d(${bgShift}%, 0, 0)`;
+    this.fgEl.style.transform = `translate3d(${bgShift * 1.35}%, 0, 0)`;
     for (const a of this.actors) a.draw();
   }
 }

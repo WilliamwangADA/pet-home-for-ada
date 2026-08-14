@@ -30,13 +30,13 @@ export const BABY_W = 0.58;
 
 export class Pet extends Actor {
   constructor(stage, breed, name, opts = {}) {
-    super(stage, { w: opts.w || 31 });
+    super(stage, { w: opts.w || 27 });
     this.breed = breed;
     this.name = name;
     this.idx = opts.idx ?? 0;
     this.npc = !!opts.npc;
     this.baby = !!opts.baby;
-    this.baseW = this.baseW0 = opts.w || 31;
+    this.baseW = this.baseW0 = opts.w || 27;
     this.el.classList.add('pet');
     if (this.npc) this.el.classList.add('npc');
 

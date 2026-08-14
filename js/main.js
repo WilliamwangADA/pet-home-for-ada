@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.10.0';
+export const VERSION = 'v0.11.0';
 import { Stage, Actor, ART } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -372,12 +372,12 @@ function wiggleFurni(id) {
 /* 屏幕坐标 → 地面坐标（stage.ground 的逆运算） */
 function screenToGround(px, py) {
   const g = sceneName === 'park'
-    ? { yNear: 0.99, yFar: 0.60, xNear: -0.02, xFar: 0.18 }
-    : { yNear: 0.99, yFar: 0.74, xNear: 0.02, xFar: 0.22 };
+    ? { yNear: 0.92, yFar: 0.58 }
+    : { yNear: 0.90, yFar: 0.72 };
   const yr = clamp(py / innerHeight, g.yFar, g.yNear);
   const v = clamp((yr - g.yFar) / (g.yNear - g.yFar), 0.05, 1);
-  const inset = g.xFar + (g.xNear - g.xFar) * v;
-  const u = clamp((px / innerWidth - inset) / (1 - inset * 2), 0.03, 0.97);
+  // 横向要经过镜头换算：屏幕位置 → 世界位置
+  const u = clamp(stage.screenToU(px / innerWidth, v), 0.02, 0.98);
   return { u, v };
 }
 
@@ -426,7 +426,7 @@ function spawnPets(spots) {
 function buildHome(entering) {
   sceneName = 'home';
   clearScene();
-  stage.setScene('home', { bg: 'bg_home.jpg' });
+  stage.setScene('home', { bg: 'bg_home_wide.jpg' });
 
   bowlA = new Actor(stage, { w: 17 });
   // 三张状态图都先建好，切换时零延迟
@@ -464,7 +464,7 @@ function buildHome(entering) {
 function buildPark() {
   sceneName = 'park';
   clearScene();
-  stage.setScene('park', { bg: 'bg_park.jpg' });
+  stage.setScene('park', { bg: 'bg_park_wide.jpg' });
 
   spawnPets(state.pets.map((_, i) => [0.38 + i * 0.13, 0.5 + (i % 2) * 0.14]));
 
@@ -1493,6 +1493,11 @@ function step(dt, time) {
     if (friend.tu === null && time > friend.nextThink) { friend.nextThink = time + rand(3, 7); autonomy(friend); }
   }
   for (const p of nurseryPets) p.update(dt, time);
+  /* 镜头缓慢跟着当前照顾的那只走，手指在拖的时候不抢 */
+  if (!panDrag) {
+    const a = APet();
+    if (a) stage.lookAt(a.u, Math.min(1, dt * 0.9));
+  }
   tickFamily(dt);  // 怀孕 / 宝宝成长
   phys.step(dt);   // 玩具的重力/弹跳/滚动、宠物绕开家具、宠物之间互不重叠
 
