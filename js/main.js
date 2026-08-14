@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.11.0';
+export const VERSION = 'v0.11.1';
 import { Stage, Actor, ART } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -1493,10 +1493,11 @@ function step(dt, time) {
     if (friend.tu === null && time > friend.nextThink) { friend.nextThink = time + rand(3, 7); autonomy(friend); }
   }
   for (const p of nurseryPets) p.update(dt, time);
-  /* 镜头缓慢跟着当前照顾的那只走，手指在拖的时候不抢 */
+  /* 镜头只在宠物快走出画面时才跟。手动拖过之后 6 秒内完全不抢，
+     否则一松手画面就弹回去，玩家拖到哪儿都白拖。 */
   if (!panDrag) {
     const a = APet();
-    if (a) stage.lookAt(a.u, Math.min(1, dt * 0.9));
+    if (a) stage.follow(a.u, a.v, dt);
   }
   tickFamily(dt);  // 怀孕 / 宝宝成长
   phys.step(dt);   // 玩具的重力/弹跳/滚动、宠物绕开家具、宠物之间互不重叠

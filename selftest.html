@@ -444,6 +444,31 @@ async function main() {
   }
   for (const p of G.pets) p.nextThink = 0;    // 恢复 AI
 
+  head('8.8 · 镜头：拖到哪停在哪');
+  {
+    const st = G.stage;
+    const start = st.camU;
+    // 模拟往左拖一段
+    for (let i = 0; i < 12; i++) st.nudge(30);
+    run(40);
+    const afterDrag = st.camU;
+    check('拖动能移动镜头', Math.abs(afterDrag - start) > 0.02,
+      `${start.toFixed(3)} → ${afterDrag.toFixed(3)}`);
+    st.release();
+    run(120);                       // 松手后等 4 秒
+    check('松手后镜头不会弹回原位', Math.abs(st.camU - afterDrag) < 0.03,
+      `松手后 ${st.camU.toFixed(3)}，拖到的是 ${afterDrag.toFixed(3)}`);
+    check('镜头不会越界', st.camU >= -0.02 && st.camU <= 1.5, `camU=${st.camU.toFixed(3)}`);
+    // 宠物走到很远处时，镜头应该会跟上
+    st.manualUntil = 0;
+    const p0 = G.pets[0];
+    G.setActive(0);
+    p0.stop(); p0.u = 0.02; p0.v = 0.6;
+    run(200);
+    const sx = st.ground(p0.u, p0.v).x;
+    check('宠物走到边上时镜头会跟上', sx > -0.05 && sx < 1.05, `宠物屏幕位置 ${sx.toFixed(2)}`);
+  }
+
   head('9 · 边界');
   for (const p of G.pets) { p.u = 5; p.v = 5; }
   run(30);

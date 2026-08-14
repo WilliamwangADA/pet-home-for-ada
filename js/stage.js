@@ -52,6 +52,8 @@ export class Stage {
     calcWorldW();
     this.camU = (WORLD_W - 1) / 2;
     this.camT = this.camU;
+    this.time = 0;
+    this.manualUntil = 0;
     this.scene = 'home';
     this.actors = [];
   }
@@ -124,15 +126,26 @@ export class Stage {
   /* 拖背景 = 平移镜头，能看到房间左右两边 */
   nudge(dx) {
     this.camT = Math.max(0, Math.min(WORLD_W - 1, this.camT - dx / innerWidth));
+    this.manualUntil = this.time + 6;      // 手动拖过之后，一段时间别自动跟随
   }
-  release() {}
-  /** 把镜头对准世界里的某个横向位置（跟随宠物用） */
-  lookAt(u, k = 1) {
-    const want = Math.max(0, Math.min(WORLD_W - 1, u * WORLD_W - 0.5));
-    this.camT += (want - this.camT) * k;
+  release() { this.manualUntil = this.time + 6; }
+
+  /** 跟随：只有宠物快走出画面时才移动镜头。
+      以前是无条件把镜头拉到宠物身上，结果手一松开画面就弹回去，
+      玩家拖到哪儿都白拖。 */
+  follow(u, v, dt) {
+    if (this.time < (this.manualUntil || 0)) return;
+    const sx = this.ground(u, v).x;        // 宠物现在在屏幕上的横向比例
+    const L = 0.26, R = 0.74;              // 中间这块是"安全区"，在里面镜头不动
+    let d = 0;
+    if (sx < L) d = sx - L;
+    else if (sx > R) d = sx - R;
+    if (!d) return;
+    this.camT = Math.max(0, Math.min(WORLD_W - 1, this.camT + d));
   }
 
   update(dt) {
+    this.time += dt;
     // 背景宽度 = 世界宽度，两者必须一致，否则角色会和背景对不上
     const wPct = WORLD_W * 100;
     if (this._bgW !== wPct) {
