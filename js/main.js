@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.9.2';
+export const VERSION = 'v0.10.0';
 import { Stage, Actor, ART } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -15,8 +15,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const QS0 = new URLSearchParams(location.search);
 const SPD = +(QS0.get('speed') || 0);
-const MAX_PETS = 4;
-const ADOPT_PRICE = [0, 40, 70, 110];
+const MAX_PETS = 8;                                   // 生了宝宝会占名额，上限提到 8
+const ADOPT_PRICE = [0, 40, 70, 110, 150, 190, 240, 300];
+const PREGNANT_SEC = 45;      // 怀孕时长（秒）；摸摸妈妈能加速
+const GROW_SEC = 180;         // 宝宝长成成年需要的陪伴时长
 
 /* 场景固定点位（地面坐标 u 横向 / v 纵深，v=1 最近） */
 const TUB_W = 48;          // 浴缸宽度（vmin）
@@ -161,6 +163,13 @@ function bindPet(p) {
       p.happy(1.8);
       particle(e.clientX, e.clientY, '💗');
       sfx.pop();
+      // 摸怀孕的妈妈能让宝宝早点出来
+      const pd = state.pets[p.idx];
+      if (pd && pd.pregnant !== undefined) {
+        pd.pregnant = Math.min(1, pd.pregnant + 0.06);
+        particle(e.clientX, e.clientY, '💞');
+        if (Math.random() < 0.2) elfSay('宝宝在肚子里动啦～', null, 2200);
+      }
       if (isCat(p.breed) && Math.random() < 0.4) sfx.purr();
       p.petStreak++;
       if (p.petStreak >= 5) {
@@ -183,6 +192,20 @@ function bindPet(p) {
 function autonomy(p) {
   if (nightOn || bathOpen || groomMode) return;
   const r = Math.random();
+
+  /* 宝宝黏着妈妈：多数时候跟在妈妈身边打转 */
+  if (p.baby) {
+    const d = state.pets[p.idx];
+    const mom = d && d.mom ? pets[state.pets.findIndex((x) => x.name === d.mom)] : null;
+    if (mom && r < 0.72) {
+      p.goto(clamp(mom.u + rand(-0.11, 0.11), 0.06, 0.94),
+        clamp(mom.v + rand(-0.06, 0.06), 0.1, 0.96), () => {
+          p.happy(2.2);
+          if (Math.random() < 0.35) { p.jump(0.5); mom.happy(2); particleAt(p, '💗', 1); }
+        }, r < 0.3);
+      return;
+    }
+  }
 
   /* 优先级最高：正在滚的球最吸引小动物 —— 谁近谁去追 */
   const rolling = phys.bodies.find(b => !b.held && !b.sleep
@@ -392,7 +415,7 @@ function clearScene() {
 
 function spawnPets(spots) {
   pets = state.pets.map((d, i) => {
-    const p = newPet(d.breed, d.name, { idx: i, equipped: d.equipped });
+    const p = newPet(d.breed, d.name, { idx: i, equipped: d.equipped, baby: !!d.baby });
     const s = spots[i] || [rand(0.3, 0.7), rand(0.4, 0.8)];
     p.u = s[0]; p.v = s[1];
     stage.add(p);
@@ -523,6 +546,7 @@ function buildUI(kind) {
         <button class="btn" data-act="sleep"><span>🌙</span><i>睡觉</i></button>
         <button class="btn" data-act="dress"><span>🎀</span><i>换装</i></button>
         <button class="btn" data-act="adopt"><span>🏡</span><i>领养</i></button>
+        <button class="btn" data-act="baby"><span>👶</span><i>生宝宝</i></button>
         <button class="btn" data-act="shop"><span>🛒</span><i>商店</i></button>
         <button class="btn" data-act="park"><span>🌳</span><i>去院子</i></button>
       </div>`);
@@ -533,21 +557,24 @@ function buildUI(kind) {
     sfx.pip();
     ({
       feed: openTray, bath: openBath, groom: startGroom, sleep: toggleNight, dress: openWardrobe,
-      adopt: openAdoptHouse, shop: openShop, park: goPark, home: goHome,
+      adopt: openAdoptHouse, baby: openBabyPanel, shop: openShop, park: goPark, home: goHome,
       throw: throwBall, bubble: blowBubbles,
     })[b.dataset.act]();
   });
   game.appendChild(bar);
 
-  if (kind === 'home') { buildTray(); buildShop(); buildWardrobe(); buildAdoptHouse(); buildBathMeter(); buildBrushLayer(); }
+  if (kind === 'home') { buildTray(); buildShop(); buildWardrobe(); buildAdoptHouse(); buildBabyPanel(); buildBathMeter(); buildBrushLayer(); }
 }
 
 function refreshChips() {
   if (!chipsEl) return;
   let html = '';
   state.pets.forEach((p, i) => {
-    html += `<div class="chip${i === state.active ? ' on' : ''}" data-i="${i}">
-      <img src="${ART}pets/${p.breed}_idle.png" alt=""></div>`;
+    const cls = `chip${i === state.active ? ' on' : ''}${p.baby ? ' baby' : ''}`;
+    const src = p.baby ? `${ART}pets/${p.breed}_baby.png` : `${ART}pets/${p.breed}_idle.png`;
+    const badge = p.pregnant !== undefined ? '<i class="preg">💕</i>'
+      : p.baby ? '<i class="bb">👶</i>' : '';
+    html += `<div class="${cls}" data-i="${i}"><img src="${src}" alt="">${badge}</div>`;
   });
   if (state.pets.length < MAX_PETS && sceneName === 'home') html += `<div class="chip add" data-add>＋</div>`;
   chipsEl.innerHTML = html;
@@ -629,9 +656,21 @@ function serveFood(emoji, fx, fy) {
     bowlA.setArt('props/bowl_food.png');       // 倒进去，满上
     bowlA.el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }],
       { duration: 380, easing: 'ease-out' });
-    let done = 0;
+    let done = 0, settled = false;
     const maxBites = pets.length * 6;
     let totalBites = maxBites;
+    /* 兜底：万一有哪只没走到盆边（被挡住、正好在洗澡…），
+       不能让盆永远停在"半碗"、爱心也不结算。到点强制收尾。 */
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      bowlA.setArt('props/bowl_empty.png');
+      state.stats.hunger = 100; save();
+      addHearts(5 * pets.length, bowlA);
+      elfSay(pets.length > 1 ? '大家都吃饱啦，肚子圆滚滚！' : '吃得真香呀～肚子圆滚滚！', 'feed_done');
+      for (const q of pets) { q.eating = false; if (q.mode === 'eat') q.setMode('idle'); }
+    };
+    later(14, finish);
     /* 围着盆站一圈：左右各一只、前面一只，都紧贴盆边（0.055 u ≈ 半个身位），
        之前偏移 0.10 u 又不转身，看起来像各吃各的。 */
     /* 围着食盆排座位。半径要落在盆的碰撞圈外，彼此也要拉开，
@@ -670,12 +709,7 @@ function serveFood(emoji, fx, fy) {
             p.eating = false;
             p.setMode('idle');
             p.happy(3); p.jump(0.6); barkOf(p); p.think('😋');
-            if (++done === pets.length) {
-              bowlA.setArt('props/bowl_empty.png');   // 舔干净了
-              state.stats.hunger = 100; save();
-              addHearts(5 * pets.length, bowlA);
-              elfSay(pets.length > 1 ? '大家都吃饱啦，肚子圆滚滚！' : '吃得真香呀～肚子圆滚滚！', 'feed_done');
-            }
+            if (++done === pets.length) finish();
           }
         });
       }, true);
@@ -934,7 +968,7 @@ function refreshShop() {
   });
 }
 function closeDrawers(except) {
-  ['shop', 'wardrobe', 'adopt-house'].forEach(id => {
+  ['shop', 'wardrobe', 'adopt-house', 'baby-panel'].forEach(id => {
     if (id !== except) document.getElementById(id)?.classList.remove('show');
   });
 }
@@ -1087,6 +1121,177 @@ function adoptNew(breed, price) {
   voice('adopt_new');
   elfSay(`欢迎${name}回家！现在有 ${state.pets.length} 个小伙伴啦～`, null, 5200);
 }
+
+/* ---------------- 生宝宝 ----------------
+   流程：选两只 → 走到一起亲亲 → 妈妈怀孕 → 出生 → 宝宝跟着妈妈 → 长大 */
+function canHaveBaby() {
+  return sceneName === 'home' && !nightOn && !bathOpen
+    && state.pets.length >= 2 && state.pets.length < MAX_PETS
+    && !state.pets.some((d) => d.pregnant !== undefined);
+}
+
+function buildBabyPanel() {
+  const el = $(`<div id="baby-panel" class="drawer"><h3>生个宝宝 <button class="btn dclose">✕</button></h3>
+    <div class="dlist"></div></div>`);
+  el.querySelector('.dclose').addEventListener('pointerdown', (e) => {
+    e.stopPropagation(); el.classList.remove('show'); sfx.pip();
+  });
+  game.appendChild(el);
+}
+let babyPick = [];
+function refreshBabyPanel() {
+  const list = document.querySelector('#baby-panel .dlist');
+  if (!list) return;
+  list.innerHTML = '';
+  if (state.pets.length >= MAX_PETS) {
+    list.appendChild($(`<div class="ah-note">小窝住满啦～<br>已经有 ${MAX_PETS} 个小家伙咯！</div>`));
+    return;
+  }
+  const preg = state.pets.find((d) => d.pregnant !== undefined);
+  if (preg) {
+    list.appendChild($(`<div class="ah-note">${preg.name}肚子里已经有小宝宝啦～<br>
+      多摸摸它，宝宝会更快出来哦！</div>`));
+    return;
+  }
+  list.appendChild($(`<div class="ah-note">选两个好朋友当爸爸妈妈<br>
+    <span style="font-weight:400">（点头像选中，选满两个就开始）</span></div>`));
+  state.pets.forEach((d, i) => {
+    if (d.baby) return;                       // 宝宝不能当爸妈
+    const on = babyPick.includes(i);
+    const item = $(`<div class="shop-item baby-item${on ? ' worn' : ''}" data-i="${i}">
+      <div class="thumb"><img src="${ART}pets/${d.breed}_idle.png" alt=""></div>
+      <div class="info"><div class="name">${d.name}</div>
+      <div class="price">${on ? '已选中 💕' : '点一下选中'}</div></div></div>`);
+    item.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      sfx.pip();
+      const k = babyPick.indexOf(i);
+      if (k >= 0) babyPick.splice(k, 1);
+      else if (babyPick.length < 2) babyPick.push(i);
+      refreshBabyPanel();
+      if (babyPick.length === 2) later(0.35, startCourtship);
+    });
+    list.appendChild(item);
+  });
+  if (state.pets.filter((d) => !d.baby).length < 2) {
+    list.appendChild($(`<div class="ah-note">要有两个长大的小家伙才能生宝宝哦～</div>`));
+  }
+}
+function openBabyPanel() {
+  cancelGroom(true);
+  if (nightOn || bathOpen || sceneName !== 'home') return;
+  closeDrawers('baby-panel');
+  babyPick = [];
+  refreshBabyPanel();
+  document.getElementById('baby-panel').classList.add('show');
+  elfSay('挑两个好朋友，它们会一起孕育一个小宝宝哦～', 'adopt_open');
+}
+
+/* ① 走到一起亲亲 */
+function startCourtship() {
+  const [i, j] = babyPick;
+  const a = pets[i], b = pets[j];
+  if (!a || !b) return;
+  document.getElementById('baby-panel').classList.remove('show');
+  babyPick = [];
+  const mu = (a.u + b.u) / 2, mv = clamp((a.v + b.v) / 2, 0.2, 0.9);
+  let arrived = 0;
+  for (const [p, side] of [[a, -1], [b, 1]]) {
+    p.stop(); p.settling = true;
+    if (p.agent) p.agent.ghost = true;
+    p.goto(clamp(mu + side * 0.07, 0.06, 0.94), mv, () => {
+      p.settling = false;
+      if (p.agent) p.agent.ghost = false;
+      p.faceTo(side < 0 ? mu + 1 : mu - 1);
+      p.happy(4);
+      if (++arrived === 2) later(0.5, () => conceive(a, b));
+    }, true);
+  }
+  elfSay(`${a.name}和${b.name}要一起孕育小宝宝啦～`, 'buddies', 4200);
+}
+
+/* ② 怀孕 */
+function conceive(a, b) {
+  sfx.sparkle(); sfx.chime();
+  for (const p of [a, b]) { p.jump(0.9); p.happy(4); }
+  for (let k = 0; k < 8; k++) later(k * 0.09, () => particleAt(a, pick(['💗', '💞', '✨']), 1));
+  // 随机一只当妈妈
+  const mom = Math.random() < 0.5 ? a : b, dad = mom === a ? b : a;
+  const md = state.pets[mom.idx];
+  md.pregnant = 0;
+  md.mate = state.pets[dad.idx].name;
+  save();
+  mom.think('💕', 3000);
+  elfSay(`${md.name}肚子里有小宝宝啦！多摸摸它，宝宝会更快出来～`, null, 5200);
+  refreshChips();
+}
+
+/* ③ 每帧推进怀孕与成长 */
+function tickFamily(dt) {
+  if (sceneName !== 'home') return;
+  for (let i = 0; i < state.pets.length; i++) {
+    const d = state.pets[i], p = pets[i];
+    if (!p) continue;
+    if (d.pregnant !== undefined) {
+      d.pregnant = Math.min(1, d.pregnant + dt / PREGNANT_SEC);
+      p.pregnant = d.pregnant;
+      if (d.pregnant >= 1) { d.pregnant = undefined; p.pregnant = 0; giveBirth(i); }
+    }
+    if (d.baby) {
+      d.grow = Math.min(1, (d.grow || 0) + dt / GROW_SEC);
+      if (d.grow >= 1) growUp(i);
+    }
+  }
+}
+
+/* ④ 出生 */
+function giveBirth(momIdx) {
+  const momD = state.pets[momIdx], mom = pets[momIdx];
+  if (!mom || state.pets.length >= MAX_PETS) { save(); return; }
+  const dadName = momD.mate;
+  const dadD = state.pets.find((x) => x.name === dadName);
+  // 品种随机继承父母之一
+  const breed = (dadD && Math.random() < 0.5) ? dadD.breed : momD.breed;
+  const used = state.pets.map((x) => x.name);
+  const name = BABY_NAMES.find((n) => !used.includes(n)) || '小宝宝';
+  state.pets.push({
+    breed, name, equipped: [], baby: true, grow: 0,
+    mom: momD.name, dad: dadName || null,
+  });
+  delete momD.mate;
+  save();
+
+  const b = newPet(breed, name, { idx: state.pets.length - 1, baby: true });
+  b.u = clamp(mom.u + 0.06, 0.06, 0.94);
+  b.v = clamp(mom.v + 0.03, 0.1, 0.98);
+  stage.add(b);
+  pets.push(b);
+  b.momIdx = momIdx;
+
+  sfx.ding(); sfx.sparkle();
+  for (let k = 0; k < 10; k++) later(k * 0.08, () => particleAt(b, pick(['💗', '✨', '🎉']), 1));
+  b.jump(0.8); mom.happy(5); mom.jump(0.7);
+  voice('adopt_new');
+  elfSay(`${momD.name}生了一个小宝宝！叫${name}吧～`, null, 6000);
+  refreshChips();
+}
+
+/* ⑤ 长大 */
+function growUp(idx) {
+  const d = state.pets[idx], p = pets[idx];
+  d.baby = false; delete d.grow;
+  save();
+  if (!p) return;
+  p.baby = false;
+  p.setPose('idle');
+  sfx.chime(); sfx.sparkle();
+  for (let k = 0; k < 8; k++) later(k * 0.1, () => particleAt(p, '✨', 1));
+  p.jump(1);
+  elfSay(`${d.name}长大啦！`, null, 4500);
+  refreshChips();
+}
+
+const BABY_NAMES = ['小豆丁', '小汤圆', '小年糕', '小福', '小满', '小葡萄', '小铃铛', '小月牙'];
 
 /* ---------------- 公园玩法 ---------------- */
 let parkTimers = [], ballBusy = false, friendCd = 0;
@@ -1288,6 +1493,7 @@ function step(dt, time) {
     if (friend.tu === null && time > friend.nextThink) { friend.nextThink = time + rand(3, 7); autonomy(friend); }
   }
   for (const p of nurseryPets) p.update(dt, time);
+  tickFamily(dt);  // 怀孕 / 宝宝成长
   phys.step(dt);   // 玩具的重力/弹跳/滚动、宠物绕开家具、宠物之间互不重叠
 
   for (let i = 0; i < butterflies.length; i++) {
@@ -1435,6 +1641,7 @@ if (dbg && hasSave) setTimeout(() => ({
 })[dbg]?.(), 1500);
 /* 自检用出口（selftest.html 驱动） */
 window.__game = {
+  refreshBabyPanel, openBabyPanel,
   phys,
   get pets() { return pets; },
   get friend() { return friend; },

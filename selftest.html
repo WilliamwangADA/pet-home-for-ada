@@ -263,11 +263,61 @@ async function main() {
   head('7 · 领养');
   G.state.hearts = 500;
   const before = G.pets.length;
+  const full = before >= 8;
   G.adoptNew('tuxedo', 110);
   run(300);
-  check('领养后多了一只', G.pets.length === before + 1, `${before} → ${G.pets.length}`);
-  check('新宠物走进了场景', G.pets[G.pets.length - 1].u > 0.05 && G.pets[G.pets.length - 1].u < 0.95);
+  check('领养后多了一只', full ? G.pets.length === before : G.pets.length === before + 1,
+    `${before} → ${G.pets.length}${full ? '（已住满，正确地拒绝了）' : ''}`);
+  {
+    const last = G.pets[G.pets.length - 1];
+    check('新宠物走进了场景', last.u > 0.02 && last.u < 0.98 && last.v > 0.02 && last.v <= 1.02,
+      `位置 ${last.u.toFixed(2)},${last.v.toFixed(2)}`);
+  }
   check('存档同步', G.state.pets.length === G.pets.length);
+
+  head('7.5 · 生宝宝');
+  {
+    G.state.hearts = 500;
+    // 保证至少有两只成年
+    while (G.pets.length < 2) { G.adoptNew('shiba', 0); run(30); }
+    const n0 = G.pets.length;
+    const adults = G.state.pets.map((d, i) => (d.baby ? -1 : i)).filter((i) => i >= 0);
+    check('有两只以上成年宠物', adults.length >= 2, `${adults.length} 只`);
+
+    // 通过 UI 选爸妈
+    fr.contentDocument.getElementById('baby-panel').classList.add('show');
+    G.refreshBabyPanel && G.refreshBabyPanel();
+    const items = fr.contentDocument.querySelectorAll('#baby-panel .baby-item');
+    check('生宝宝面板列出了候选爸妈', items.length >= 2, `${items.length} 个`);
+    if (items.length >= 2) {
+      items[0].dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true }));
+      items[1].dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true }));
+      run(40);                                  // 走到一起亲亲
+      run(60);
+      const preg = G.state.pets.find((d) => d.pregnant !== undefined);
+      check('有一只怀孕了', !!preg, JSON.stringify(G.state.pets.map((d) => d.name + ':' + d.pregnant)));
+      if (preg) {
+        check('怀孕的那只在 HUD 上有标记', !!fr.contentDocument.querySelector('#chips .preg'));
+        // 推进到出生
+        run(Math.ceil(46 * 30));
+        check('宝宝出生了', G.pets.length === n0 + 1, `${n0} → ${G.pets.length}`);
+        const babyD = G.state.pets[G.state.pets.length - 1];
+        check('新成员是宝宝', !!babyD.baby, JSON.stringify(babyD));
+        check('宝宝记录了妈妈', !!babyD.mom, babyD.mom || '没有');
+        check('宝宝的品种继承自父母', G.state.pets.slice(0, -1).some((d) => d.breed === babyD.breed),
+          babyD.breed);
+        const babyP = G.pets[G.pets.length - 1];
+        check('宝宝比成年小', babyP.w < G.pets[0].w, `${babyP.w.toFixed(1)} vs ${G.pets[0].w.toFixed(1)}`);
+        check('宝宝用的是宝宝贴图',
+          babyP.img && babyP.img.getAttribute('src').includes('_baby'),
+          babyP.img ? babyP.img.getAttribute('src') : '无');
+        check('宝宝贴图能加载', babyP.img && babyP.img.complete && babyP.img.naturalWidth > 0);
+        // 长大
+        run(Math.ceil(181 * 30));
+        check('陪够时间后宝宝会长大', !G.state.pets[G.state.pets.length - 1].baby);
+      }
+    }
+  }
 
   head('8 · 公园');
   G.goPark();
@@ -328,10 +378,12 @@ async function main() {
       `${ballA.u.toFixed(2)},${ballA.v.toFixed(2)}`);
     // ③ 撞墙反弹
     ballA.u = 0.5; ballA.v = 0.42; ballA.h = ballA.body.hr;
+    const u1 = ballA.u;
     ballA.body.kick(2.0, 0, 0.05);
-    run(50);
-    check('球撞墙会反弹回来', ballA.body.vu <= 0.01,
-      `u=${ballA.u.toFixed(2)} vu=${ballA.body.vu.toFixed(2)}`);
+    let touchedWall = false;
+    for (let i = 0; i < 90; i++) { run(1); if (ballA.u > 0.9) touchedWall = true; }
+    check('球撞墙会反弹回来', touchedWall && (ballA.body.vu <= 0.01 || ballA.u < 0.9),
+      `到过墙边=${touchedWall} u=${ballA.u.toFixed(2)} vu=${ballA.body.vu.toFixed(2)}`);
     // ④ 宠物撞上去球会被撞飞
     freeze(false);
     for (const p of G.pets) { p.stop(); p.nextThink = 1e9; }

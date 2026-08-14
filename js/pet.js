@@ -25,6 +25,8 @@ const POSE_FRAMES = {
 /* 每秒切几帧 */
 const POSE_FPS = { idle: 0.55, walk: 6.5, happy: 5 };
 const POSE_W = { idle: 1.0, walk: 1.06, sit: 0.92, sleep: 1.12, happy: 1.0 };
+/* 宝宝相对成年的体型倍数 */
+export const BABY_W = 0.58;
 
 export class Pet extends Actor {
   constructor(stage, breed, name, opts = {}) {
@@ -33,6 +35,7 @@ export class Pet extends Actor {
     this.name = name;
     this.idx = opts.idx ?? 0;
     this.npc = !!opts.npc;
+    this.baby = !!opts.baby;
     this.baseW = this.baseW0 = opts.w || 31;
     this.el.classList.add('pet');
     if (this.npc) this.el.classList.add('npc');
@@ -40,6 +43,7 @@ export class Pet extends Actor {
     // 5 张姿态图一次全建好并预解码，之后切姿态零延迟、不会闪空
     for (const list of Object.values(POSE_FRAMES))
       for (const f of list) this.addArt(`pets/${breed}_${f}.png`);
+    this.addArt(`pets/${breed}_baby.png`);
     this.mode = 'idle';
     this.setPose('idle');
 
@@ -85,6 +89,17 @@ export class Pet extends Actor {
 
   setPose(p) {
     this.pose = p;
+    /* 宝宝只有一张 idle 贴图（比例和成年完全不同：头大腿短），
+       其余动作沿用这张，靠程序化动画表现"摇摇晃晃"。 */
+    if (this.baby) {
+      this.frames = ['baby'];
+      this.frameT = 0; this.frameI = 0;
+      this.setArt(`pets/${this.breed}_baby.png`);
+      this.w = this.baseW * BABY_W;
+      this.el.classList.toggle('sleeping', p === 'sleep');
+      this.el.classList.toggle('hide-wear', true);   // 宝宝先不戴东西
+      return;
+    }
     this.frames = (POSE_FRAMES[p] || [p]).filter(f => this.has(f));
     if (!this.frames.length) this.frames = [p];
     this.frameT = 0; this.frameI = 0;
@@ -237,8 +252,9 @@ export class Pet extends Actor {
     /* 走路：上下起伏 + 左右摇摆，配合两帧交替的迈腿 */
     const walking = this.mode === 'walk';
     this.phase += dt * (walking ? (this.running ? 11 : 7.5) : 1.6);
-    const stepBob = walking ? Math.abs(Math.sin(this.phase)) * H * 0.075 : 0;
-    const sway = walking ? Math.sin(this.phase) * 5.5 : 0;
+    const babyK = this.baby ? 1.8 : 1;      // 宝宝走路摇摇晃晃，步子碎
+    const stepBob = walking ? Math.abs(Math.sin(this.phase)) * H * 0.075 * babyK : 0;
+    const sway = walking ? Math.sin(this.phase) * 5.5 * babyK : 0;
 
     /* 呼吸 */
     const breathe = this.mode === 'sleep'

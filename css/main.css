@@ -104,6 +104,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:#cfe3ee;
 .chip:active{transform:scale(.9)}
 .chip.on{border-color:#ffb3c0;transform:scale(1.08)}
 .chip img{position:absolute;left:50%;top:52%;width:132%;transform:translate(-50%,-50%)}
+.chip.baby{width:8.6vmin;height:8.6vmin}
+.chip .preg,.chip .bb{position:absolute;right:-.3vmin;bottom:-.3vmin;font-size:3vmin;
+  font-style:normal;line-height:1;filter:drop-shadow(0 .2vmin .3vmin rgba(90,60,30,.4))}
+.chip .preg{animation:pregbeat 1.6s ease-in-out infinite}
+@keyframes pregbeat{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+.baby-item.worn{outline:.5vmin solid #ffb3c0;outline-offset:-.5vmin}
 .chip.add{display:flex;align-items:center;justify-content:center;font-size:5vmin;
   color:#c99a6a;background:#fffaf0;border-style:dashed;border-color:#e0c9a8}
 
