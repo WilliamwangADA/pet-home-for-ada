@@ -1,0 +1,79 @@
+<!DOCTYPE html><meta charset="utf-8">
+<title>DIAG boot</title>
+<body style="margin:0;background:#111;color:#ddd;font:13px monospace">
+<pre id="o" style="padding:10px;white-space:pre-wrap"></pre>
+<iframe id="fr" src="seed-test.html?pets=shiba,calico,golden&decor=1&nosw=1" style="width:1180px;height:830px;border:0"></iframe>
+<script>
+const o = document.getElementById('o'); const L = [];
+const say = t => { L.push(t); o.textContent = L.join('\n'); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  const fr = document.getElementById('fr');
+  let G = null;
+  for (let i = 0; i < 120; i++) { G = fr.contentWindow.__game; if (G && G.pets.length) break; await sleep(200); }
+  if (!G) { document.title = 'DIAG nogame'; return; }
+  const W = fr.contentWindow, D = fr.contentDocument;
+  const st = G.stage;
+  const sx = (u, v) => st.ground(u, v).x;                 // 屏幕比例 0..1
+  const vis = (u, v) => { const x = sx(u, v); return x > 0.03 && x < 0.97; };
+  const R = [];
+  const chk = (name, ok, det) => R.push((ok ? 'OK  ' : 'BAD ') + name + (det ? '  ' + det : ''));
+
+  say('WORLD_W=' + (W.__game.stage.constructor, st.camU.toFixed(3)) + ' camU');
+  // 1) 场景固定物件是否在镜头内
+  const acts = st.actors;
+  const named = [];
+  for (const a of acts) {
+    const f = (a._cur || '').replace(/\.png|.*\//g, '');
+    if (!f) continue;
+    named.push([f, a.u, a.v, sx(a.u, a.v)]);
+  }
+  for (const [f, u, v, x] of named) chk('可见:' + f, x > 0.02 && x < 0.98, `u=${u.toFixed(2)} screenX=${x.toFixed(2)}`);
+
+  // 2) 宠物初始位置
+  G.pets.forEach((p, i) => chk('宠物可见:' + p.name, vis(p.u, p.v), `u=${p.u.toFixed(2)} x=${sx(p.u, p.v).toFixed(2)}`));
+
+  // 3) 睡觉：是否都进窝
+  G.toggleNight(); G.run(300);
+  const bed = G.furni.find(a => a.def.id === 'bed');
+  if (bed) {
+    G.pets.forEach(p => {
+      const d = Math.hypot((p.u - bed.u) * 1.6, (p.v - bed.v));
+      chk('睡觉靠窝:' + p.name, d < 0.30, `距窝 ${d.toFixed(2)} mode=${p.mode}`);
+    });
+  }
+  G.toggleNight(); G.run(120);
+
+  // 4) 洗澡：浴缸是否在镜头内 + 宠物是否真的进缸
+  G.openBath(); G.run(400);
+  const tub = st.actors.find(a => (a._cur || '').includes('tub'));
+  chk('浴缸存在', !!tub);
+  if (tub) chk('浴缸完全可见', sx(tub.u, tub.v) > 0.12 && sx(tub.u, tub.v) < 0.88, `x=${sx(tub.u, tub.v).toFixed(2)}`);
+  const bp = G.pets[G.state.active];
+  chk('宠物进了浴缸', !!bp.inTub, `mode=${bp.mode} u=${bp.u.toFixed(2)}`);
+  G.finishBath(); G.run(200);
+
+  // 5) 公园 NPC
+  G.goPark(); G.run(200);
+  const fr2 = G.friend;
+  chk('公园朋友狗存在', !!fr2);
+  if (fr2) chk('朋友狗可见', vis(fr2.u, fr2.v), `u=${fr2.u.toFixed(2)} x=${sx(fr2.u, fr2.v).toFixed(2)}`);
+  G.goHome(); G.run(200);
+
+  // 6) 领养出场位置
+  const before = G.pets.length;
+  G.adoptNew('orange', 0); G.run(60);
+  const np = G.pets[G.pets.length - 1];
+  chk('新领养宠物可见', vis(np.u, np.v), `u=${np.u.toFixed(2)} x=${sx(np.u, np.v).toFixed(2)}`);
+
+  // 7) 长时间自由活动后，宠物是否会跑出镜头（镜头跟随是否兜住）
+  G.run(1800);
+  let out = 0;
+  G.pets.forEach(p => { if (!vis(p.u, p.v)) out++; });
+  chk('自由活动后无宠物在镜头外', out === 0, `${out}/${G.pets.length} 只在镜头外`);
+
+  say(R.join('\n'));
+  const bad = R.filter(r => r.startsWith('BAD'));
+  document.title = 'DIAG bad=' + bad.length + ' :: ' + bad.join(' | ');
+})().catch(e => { document.title = 'DIAG crash ' + e.message; say('crash ' + e.stack); });
+</script>

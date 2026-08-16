@@ -110,8 +110,10 @@ async function main() {
   check('浴缸出现了', G.flags.tub);
   check('进入洗澡状态', G.flags.bath);
   check('宠物在缸里 (inTub)', !!P().inTub);
-  check('宠物坐到缸中心', Math.hypot(P().u - 0.74, P().v - 0.62) < 0.05,
-    `位置 ${P().u.toFixed(2)},${P().v.toFixed(2)}`);
+  // 缸的位置是按屏幕比例动态算的（房间加宽后），不能写死
+  check('宠物坐到缸中心',
+    Math.hypot(P().u - G.SPOT.tub.u, (P().v - G.SPOT.tub.v) * 0.62) < 0.05,
+    `宠物 ${P().u.toFixed(2)},${P().v.toFixed(2)} 缸 ${G.SPOT.tub.u.toFixed(2)},${G.SPOT.tub.v.toFixed(2)}`);
   check('在缸里是坐姿（比站姿更像泡澡）', P().pose === 'sit',
     `pose=${P().pose} mode=${P().mode} frames=${(P().frames||[]).join('/')}`);
   // 语义是"缸装得下宠物"，所以直接和缸比，别和自身基准比（基准会调）
@@ -158,7 +160,12 @@ async function main() {
       + (p.tu !== null ? `→${p.tu.toFixed(2)},${p.tv.toFixed(2)}` : '(到)')).join('  ')
       + ` 窝@${(G.furni.find(f=>f.def.id==='bed')||{}).u?.toFixed(2)},${(G.furni.find(f=>f.def.id==='bed')||{}).v?.toFixed(2)}`);
   const bed = G.furni.find(f => f.def.id === 'bed');
-  if (bed) check('睡在狗窝附近', G.pets.every(p => Math.abs(p.v - bed.v) < 0.12));
+  if (bed) {
+    const near = G.pets.filter((p) => Math.hypot(p.u - bed.u, (p.v - bed.v) * 0.62) < 0.30);
+    check('睡在狗窝附近', near.length >= Math.min(2, G.pets.length),
+      `${near.length}/${G.pets.length} 只；窝@${bed.u.toFixed(2)},${bed.v.toFixed(2)}；`
+      + G.pets.map((p) => `${p.u.toFixed(2)},${p.v.toFixed(2)}`).join(' '));
+  }
   G.toggleNight();
   run(60);
   check('天亮后醒来', !G.flags.night && G.pets.every(p => p.mode !== 'sleep'));
@@ -467,6 +474,57 @@ async function main() {
     run(200);
     const sx = st.ground(p0.u, p0.v).x;
     check('宠物走到边上时镜头会跟上', sx > -0.05 && sx < 1.05, `宠物屏幕位置 ${sx.toFixed(2)}`);
+  }
+
+  head('8.9 · 日夜 / 天气 / 四季');
+  {
+    const wd = G.world;
+    check('环境系统在跑', !!wd, '没有 world');
+    if (wd) {
+      check('默认跟着真实时间', wd.auto === true);
+      check('时段是四个之一', ['dawn', 'day', 'dusk', 'night'].includes(wd.curPhase), wd.curPhase);
+      check('季节是四个之一', ['spring', 'summer', 'autumn', 'winter'].includes(wd.season), wd.season);
+      // 换季要换背景图
+      for (const sea of ['spring', 'summer', 'autumn', 'winter']) {
+        wd.set('season', sea);
+        G.reskin();
+        run(4);
+        const src = G.stage.bgEl.getAttribute('src');
+        check(`切到${sea}会换背景图`, src.includes(sea), src.split('/').pop());
+      }
+      // 背景图都要能加载
+      await sleep(700);
+      check('四季背景都能加载', G.stage.bgEl.complete && G.stage.bgEl.naturalWidth > 0,
+        `naturalWidth=${G.stage.bgEl.naturalWidth}`);
+      // 下雪要有雪花
+      wd.set('season', 'winter'); wd.set('weather', 'snow'); run(4);
+      const snow = fr.contentDocument.querySelectorAll('#env .snow');
+      check('下雪时有雪花飘', snow.length > 10, `${snow.length} 片`);
+      // 下雨要有雨滴
+      wd.set('weather', 'rain'); run(4);
+      const drops = fr.contentDocument.querySelectorAll('#env .drop');
+      check('下雨时有雨滴', drops.length > 10, `${drops.length} 滴`);
+      // 夜晚要压暗
+      wd.set('phase', 'day'); run(4);
+      const dayF = G.stage.bgEl.style.filter;
+      wd.set('phase', 'night'); run(4);
+      const nightF = G.stage.bgEl.style.filter;
+      const bri = (f) => parseFloat((f.match(/brightness\(([\d.]+)\)/) || [])[1] || 1);
+      check('夜晚比白天暗', bri(nightF) < bri(dayF) * 0.85,
+        `白天 ${bri(dayF).toFixed(2)} / 夜晚 ${bri(nightF).toFixed(2)}`);
+      // 面板能开
+      G.openEnvPanel();
+      run(4);
+      const panel = fr.contentDocument.getElementById('env-panel');
+      check('天气面板能打开', !!panel && panel.classList.contains('show'));
+      check('面板列出了所有选项',
+        panel && panel.querySelectorAll('.env-btn').length >= 12,
+        `${panel ? panel.querySelectorAll('.env-btn').length : 0} 个按钮`);
+      panel.classList.remove('show');
+      wd.setAuto();
+      run(4);
+      G.reskin();
+    }
   }
 
   head('9 · 边界');

@@ -1,11 +1,15 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.11.1';
-import { Stage, Actor, ART } from './stage.js';
+export const VERSION = 'v0.12.0';
+import { Stage, Actor, ART, uOfScreen, uOfWall, clampVisible, WORLD_W } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
 import { sfx, voice, petVoice } from './audio.js';
 import { state, load, save, activePet } from './save.js';
 import { Phys, Body, dist } from './phys.js';
+import {
+  World, PHASES, PHASE_LABEL, WEATHERS, WEATHER_LABEL, WEATHER_ICON,
+  SEASONS, SEASON_LABEL, SEASON_ICON,
+} from './world.js';
 
 const game = document.getElementById('game');
 const $ = (h) => { const d = document.createElement('div'); d.innerHTML = h; return d.firstElementChild; };
@@ -23,16 +27,29 @@ const GROW_SEC = 180;         // 宝宝长成成年需要的陪伴时长
 /* 场景固定点位（地面坐标 u 横向 / v 纵深，v=1 最近） */
 const TUB_W = 48;          // 浴缸宽度（vmin）
 const BATH_LIFT = 0.44;    // 宠物在缸里的抬高量（占缸高比例）
-const SPOT = {
-  bowl: { u: 0.20, v: 0.74 },
-  water: { u: 0.40, v: 0.60 },
-  tub: { u: 0.74, v: 0.62 },
+/* 位置写成"我想让它出现在屏幕的哪一侧"，开机时翻译成世界坐标。
+   房间比屏幕宽，直接写世界 u 的话（比如浴缸 0.74）会有一半在镜头外。
+   sx = 屏幕横向比例，v = 纵深。 */
+const SPOT_PLAN = {
+  bowl: { sx: 0.13, v: 0.74 },
+  water: { sx: 0.42, v: 0.60 },
+  tub: { sx: 0.76, v: 0.62 },
 };
+const SPOT = { bowl: {}, water: {}, tub: {} };
+function layoutSpots() {
+  for (const k in SPOT_PLAN) {
+    const p = SPOT_PLAN[k];
+    SPOT[k] = { u: uOfScreen(p.sx, p.v), v: p.v };
+  }
+}
+layoutSpots();
 
 const stage = new Stage(game);
 /* 2.5D 物理世界：地面是 (u,v) 平面，玩具还有离地高度 h */
 const phys = new Phys();
 phys.onImpact = onImpact;
+/* 日夜 / 天气 / 四季。默认跟着现实时间和月份走 */
+const world = new World(game, stage);
 const fxLayer = $('<div id="fx"></div>');
 game.appendChild(fxLayer);
 
@@ -189,6 +206,13 @@ function bindPet(p) {
 }
 
 /* 自主行为 */
+/* 随便遛达一步：落点始终在【玩家现在看得到的这一屏】里。
+   房间比屏幕宽，还照旧写 rand(0.1,0.9) 的话，宠物会自己走出画面"失踪"。 */
+function wander(p, run = false, then = null) {
+  const v = rand(0.15, 0.95);
+  p.goto(clamp(stage.screenToU(rand(0.12, 0.88), v), 0.04, 0.96), v, then, run);
+}
+
 function autonomy(p) {
   if (nightOn || bathOpen || groomMode) return;
   const r = Math.random();
@@ -214,7 +238,7 @@ function autonomy(p) {
   if (rolling && !p.npc) { chaseToy(p, rolling); return; }
 
   if (sceneName === 'park' || p.npc) {
-    if (r < 0.78) p.goto(rand(0.1, 0.9), rand(0.15, 0.95), null, r < 0.3);
+    if (r < 0.78) wander(p, r < 0.3);
     else p.happy(1.6);
     return;
   }
@@ -244,7 +268,7 @@ function autonomy(p) {
       p.setMode('sit'); p.happy(3.4);
       later(5.2, () => { if (p.mode === 'sit') p.setMode('idle'); });
     });
-  } else if (r < 0.94) p.goto(rand(0.1, 0.9), rand(0.15, 0.95));
+  } else if (r < 0.94) wander(p);
   else p.happy(1.6);
 }
 
@@ -279,10 +303,26 @@ function decorPos(f) {
   if (!d) return null;
   if (typeof d.u === 'number') return { u: d.u, v: d.v };
   // 旧存档兼容：v0.5 是 3D 世界坐标，v0.4 及更早是屏幕比例
-  if (typeof d.z === 'number') return { u: clamp(d.x / 10.4 + 0.5, 0.08, 0.92), v: clamp(d.z / 9.5 + 0.7, 0.12, 0.95) };
-  return { u: clamp(d.x, 0.08, 0.92), v: clamp((d.y - 0.5) / 0.42, 0.12, 0.95) };
-}function spawnFurni(f) {
-  const pos = decorPos(f) || { u: rand(0.25, 0.75), v: rand(0.35, 0.8) };
+  const v = typeof d.z === 'number' ? clamp(d.z / 9.5 + 0.7, 0.12, 0.95) : clamp((d.y - 0.5) / 0.42, 0.12, 0.95);
+  const t = typeof d.z === 'number' ? clamp(d.x / 10.4 + 0.5, 0.08, 0.92) : clamp(d.x, 0.08, 0.92);
+  return { u: uOfScreen(t, v), v };          // 那两版的横向都是屏幕比例，要翻译成世界坐标
+}
+/* v0.11 房间变宽以后，存档里 u 的含义从"屏幕比例"变成了"整个房间的比例"，
+   老位置照搬会落到镜头外 —— 孩子会以为家具被弄丢了。按开局镜头换算一次，
+   打上标记，之后不再重复迁移。 */
+function migrateDecor() {
+  if (state.decorV >= 11) return;
+  for (const f of FURNI) {
+    const d = state.decor[f.id];
+    if (!d || typeof d.u !== 'number') continue;
+    d.u = f.zone === 'wall' ? uOfWall(d.u) : uOfScreen(d.u, typeof d.v === 'number' ? d.v : 0.6);
+  }
+  state.decorV = 11;
+  save();
+}
+function spawnFurni(f) {
+  const dv = rand(0.35, 0.8);
+  const pos = decorPos(f) || { u: uOfScreen(rand(0.25, 0.75), dv), v: dv };
   const a = new Actor(stage, { w: f.w });
   a.el.classList.add('furni');
   a.el.style.pointerEvents = 'auto';
@@ -290,7 +330,7 @@ function decorPos(f) {
   a.u = pos.u; a.v = pos.v;
   a.def = f;
   if (f.zone === 'wall') {
-    a.wall = true; a.wallY = 0.30; a.u = clamp(pos.u, 0.08, 0.92);
+    a.wall = true; a.wallY = 0.30; a.u = clamp(pos.u, 0.02, 0.98);
   } else if (f.dyn) {
     /* 玩具 = 刚体：会被踢飞、会弹、会滚、会撞到别的东西 */
     a.body = phys.addBody(new Body(a, f.r, {
@@ -318,7 +358,8 @@ function bindFurni(a) {
   a.el.addEventListener('pointermove', (e) => {
     if (!drag || drag.id !== e.pointerId) return;
     if (a.wall) {
-      a.u = clamp(e.clientX / innerWidth, 0.06, 0.94);
+      // 墙上挂件也是世界坐标，屏幕位置要先减掉镜头
+      a.u = clamp((e.clientX / innerWidth + stage.camU) / WORLD_W, 0.02, 0.98);
       a.wallY = clamp(e.clientY / innerHeight, 0.1, 0.6);
       return;
     }
@@ -404,13 +445,13 @@ function clearScene() {
   furniList = [];
   bowlA = waterA = tubA = null; tubStat = null;
   bathOpen = false; groomMode = false;
-  for (const p of pets) { p.inTub = false; p.toTub = false; }
+  for (const p of pets) { p.inTub = false; p.toTub = false; p.tubU = p.tubV = undefined; }
   if (brushLayer) brushLayer.classList.remove('on');
   if (groomTimer) { cancelTimer(groomTimer); groomTimer = null; }
   clearTimers();          // 上个场景挂起的回调不能打到新场景上
   phys.reset();           // 物理世界跟着场景一起重建
   stopParkLife();
-  game.querySelectorAll('#hud,#toolbar,.tray,.drawer,#elf,#speech,#bath-meter').forEach(n => n.remove());
+  game.querySelectorAll('#hud,#toolbar,.tray,.drawer,#env-panel,#elf,#speech,#bath-meter').forEach(n => n.remove());
 }
 
 function spawnPets(spots) {
@@ -425,8 +466,9 @@ function spawnPets(spots) {
 
 function buildHome(entering) {
   sceneName = 'home';
+  layoutSpots();               // 屏幕比例变了（转屏），点位要跟着重算
   clearScene();
-  stage.setScene('home', { bg: 'bg_home_wide.jpg' });
+  stage.setScene('home', { bg: world.bgFor('home') });
 
   bowlA = new Actor(stage, { w: 17 });
   // 三张状态图都先建好，切换时零延迟
@@ -452,10 +494,14 @@ function buildHome(entering) {
 
   for (const f of FURNI) if (state.decor[f.id]) spawnFurni(f);
 
-  const spots = entering === 'fromPark'
-    ? state.pets.map((_, i) => [0.72 - i * 0.1, 0.35 + i * 0.06])
-    : state.pets.map((_, i) => [0.36 + i * 0.14, 0.55 + (i % 2) * 0.16]);
-  spawnPets(spots);
+  /* 开局站位：在【屏幕上】均匀铺开再翻译成世界坐标。
+     照旧按世界坐标等距排的话，养到 4 只以上后面几只会排到镜头外。 */
+  const n = Math.max(1, state.pets.length);
+  spawnPets(state.pets.map((_, i) => {
+    const t = n === 1 ? 0.46 : 0.2 + 0.58 * (i / (n - 1));
+    const v = entering === 'fromPark' ? 0.34 + (i % 2) * 0.07 : 0.55 + (i % 2) * 0.16;
+    return [uOfScreen(t, v), v];
+  }));
 
   buildElf();
   buildUI('home');
@@ -464,14 +510,21 @@ function buildHome(entering) {
 function buildPark() {
   sceneName = 'park';
   clearScene();
-  stage.setScene('park', { bg: 'bg_park_wide.jpg' });
+  stage.setScene('park', { bg: world.bgFor('park') });
 
-  spawnPets(state.pets.map((_, i) => [0.38 + i * 0.13, 0.5 + (i % 2) * 0.14]));
+  const np = Math.max(1, state.pets.length);
+  spawnPets(state.pets.map((_, i) => {
+    const t = np === 1 ? 0.5 : 0.3 + 0.52 * (i / (np - 1));
+    const v = 0.5 + (i % 2) * 0.14;
+    return [uOfScreen(t, v, 'park'), v];
+  }));
 
   const others = Object.keys(BREEDS).filter(k => !state.pets.some(p => p.breed === k));
   const fb = pick(others.length ? others : Object.keys(BREEDS));
   friend = newPet(fb, BREEDS[fb].label, { npc: true, nametag: BREEDS[fb].label });
-  friend.u = rand(0.1, 0.22); friend.v = rand(0.35, 0.55);
+  // 朋友狗要在开局就看得见（宽世界里 u=0.1 已经在镜头左边外面了）
+  friend.v = rand(0.35, 0.55);
+  friend.u = uOfScreen(rand(0.10, 0.22), friend.v, 'park');
   friend.nextThink = 0;
   stage.add(friend);
 
@@ -547,6 +600,7 @@ function buildUI(kind) {
         <button class="btn" data-act="dress"><span>🎀</span><i>换装</i></button>
         <button class="btn" data-act="adopt"><span>🏡</span><i>领养</i></button>
         <button class="btn" data-act="baby"><span>👶</span><i>生宝宝</i></button>
+        <button class="btn" data-act="env"><span>🌤️</span><i>天气</i></button>
         <button class="btn" data-act="shop"><span>🛒</span><i>商店</i></button>
         <button class="btn" data-act="park"><span>🌳</span><i>去院子</i></button>
       </div>`);
@@ -557,13 +611,13 @@ function buildUI(kind) {
     sfx.pip();
     ({
       feed: openTray, bath: openBath, groom: startGroom, sleep: toggleNight, dress: openWardrobe,
-      adopt: openAdoptHouse, baby: openBabyPanel, shop: openShop, park: goPark, home: goHome,
+      adopt: openAdoptHouse, baby: openBabyPanel, env: openEnvPanel, shop: openShop, park: goPark, home: goHome,
       throw: throwBall, bubble: blowBubbles,
     })[b.dataset.act]();
   });
   game.appendChild(bar);
 
-  if (kind === 'home') { buildTray(); buildShop(); buildWardrobe(); buildAdoptHouse(); buildBabyPanel(); buildBathMeter(); buildBrushLayer(); }
+  if (kind === 'home') { buildTray(); buildShop(); buildWardrobe(); buildAdoptHouse(); buildBabyPanel(); buildEnvPanel(); buildBathMeter(); buildBrushLayer(); }
 }
 
 function refreshChips() {
@@ -676,9 +730,9 @@ function serveFood(emoji, fx, fy) {
     /* 围着食盆排座位。半径要落在盆的碰撞圈外，彼此也要拉开，
        而且必须避开旁边的家具（水碗、盆栽都可能压住某个座位）—— 
        这些都交给 phys.ringSpots 动态算，写死坐标一定会出问题。 */
-    let seats = phys.ringSpots(SPOT.bowl.u, SPOT.bowl.v, 0.125, pets.length, 0.062, bowlStat);
+    let seats = phys.ringSpots(SPOT.bowl.u, SPOT.bowl.v, 0.115, pets.length, 0.062, bowlStat);
     if (seats.length < pets.length) {
-      seats = seats.concat(phys.ringSpots(SPOT.bowl.u, SPOT.bowl.v, 0.175, pets.length, 0.062, bowlStat));
+      seats = seats.concat(phys.ringSpots(SPOT.bowl.u, SPOT.bowl.v, 0.16, pets.length, 0.062, bowlStat));
     }
     const pickSeat = (p) => {
       if (!seats.length) return { u: clamp(SPOT.bowl.u + rand(-0.2, 0.2), 0.06, 0.94), v: SPOT.bowl.v };
@@ -749,37 +803,44 @@ function buildBathMeter() {
      一边被自己的浴缸推开，永远走不到（目标点就在碰撞半径里）。 */
   p.toTub = true;
   p.goto(clamp(SPOT.tub.u - 0.19, 0.05, 0.95), clamp(SPOT.tub.v + 0.06, 0.1, 0.98), () => {
+    /* 可能是被"卡住兜底"提前判定到达的，位置未必准 ——
+       跳进缸之前先把它挪到缸边的正确起跳点 */
+    p.u = clamp(SPOT.tub.u - 0.16, 0.05, 0.95);
+    p.v = clamp(SPOT.tub.v + 0.05, 0.1, 0.98);
     p.faceTo(SPOT.tub.u);
     hopIntoTub(p);
   }, true);
 }
 
-/* ② 跳进浴缸：一条真的抛物线，落进缸里 */
+/* ② 跳进浴缸。
+   逻辑位置【立刻】落到缸里，跳跃只做视觉动画 ——
+   以前用逐帧插值改 u/v，中途一被打断宠物就卡在半路进不了缸。 */
 function hopIntoTub(p) {
   if (!tubA) return;
   p.stop();
-  p.inTub = true;                       // 这一刻起不再参与地面碰撞
+  p.inTub = true;
   bathOpen = true;
   sfx.boing();
-  const u0 = p.u, v0 = p.v;
   const tubH = tubA.artH() || innerHeight * 0.24;
-  const T = 0.42;                       // 起跳到落缸的时长
-  let t = 0;
-  const jump = repeat(1 / 60, Math.round(T * 60) + 1, () => {
-    t += 1 / 60;
-    const k = Math.min(1, t / T);
-    p.u = u0 + (SPOT.tub.u - u0) * k;
-    p.v = v0 + (SPOT.tub.v - v0) * k;
-    p.extraY = Math.sin(k * Math.PI) * tubH * 0.55 + tubH * BATH_LIFT * k;
-    if (k >= 1) { cancelTimer(jump); settleInTub(p, tubH); }
-  });
+  settleInTub(p, tubH);
+  // 视觉上的一跳：只动 transform，不碰逻辑坐标
+  p.rig.animate(
+    [
+      { transform: 'translateY(0) scale(1,1)' },
+      { transform: `translateY(${-tubH * 0.5}px) scale(1.04,.96)`, offset: 0.45 },
+      { transform: 'translateY(0) scale(.96,1.04)', offset: 0.8 },
+      { transform: 'translateY(0) scale(1,1)' },
+    ],
+    { duration: 480, easing: 'cubic-bezier(.32,.9,.4,1)' },
+  );
 }
 
 /* ③ 落定：坐在泡沫里，只露出脸和肩膀 */
 function settleInTub(p, tubH) {
   if (!tubA) return;
   p.u = SPOT.tub.u; p.v = SPOT.tub.v;
-  p.setMode('sit');                                  // 坐姿比站姿更像"泡"在缸里
+  p.tubU = SPOT.tub.u; p.tubV = SPOT.tub.v;      // 钉住，别被挪走
+  p.setMode('sit');                              // 坐姿比站姿更像"泡"在缸里
   /* 宠物宽度按缸宽定：离线把缸和宠物合成对比出来的，
      0.48 倍缸宽 + 抬高 0.44 倍缸高，刚好露出整张脸、身体埋在泡沫里。 */
   p.setScale((TUB_W * 0.48) / (p.baseW0 * 0.92));
@@ -790,7 +851,7 @@ function settleInTub(p, tubH) {
   particleAt(tubA, '💦', 5);
   for (let i = 0; i < 6; i++) spawnBubble(p);
   bathMeter.classList.add('show');
-  bathMeter.querySelectorAll('.st').forEach(s => s.classList.remove('lit'));
+  bathMeter.querySelectorAll('.st').forEach((s) => s.classList.remove('lit'));
   setBrushLayer(true);
 }
 
@@ -903,6 +964,7 @@ function toggleNight() {
   if (bathOpen || sceneName !== 'home') return;
   if (!nightOn) {
     nightOn = true;
+    world.forceNight(true);
     game.classList.add('is-night');
     trayEl.classList.remove('show');
     closeDrawers();
@@ -930,6 +992,7 @@ function toggleNight() {
 function morning() {
   if (!nightOn) return;
   nightOn = false;
+  world.forceNight(false);
   game.classList.remove('is-night');
   pets.forEach(p => {
     p.settling = false;
@@ -968,7 +1031,7 @@ function refreshShop() {
   });
 }
 function closeDrawers(except) {
-  ['shop', 'wardrobe', 'adopt-house', 'baby-panel'].forEach(id => {
+  ['shop', 'wardrobe', 'adopt-house', 'baby-panel', 'env-panel'].forEach(id => {
     if (id !== except) document.getElementById(id)?.classList.remove('show');
   });
 }
@@ -984,7 +1047,11 @@ function buyFurni(f) {
   if (state.hearts < f.price) return notEnough();
   state.hearts -= f.price;
   heartPill.querySelector('.hnum').textContent = Math.round(state.hearts);
-  state.decor[f.id] = f.zone === 'wall' ? { u: 0.14, v: 0.3 } : { u: rand(0.3, 0.7), v: rand(0.4, 0.85) };
+  // 新买的东西一定要落在孩子当下看得见的画面里
+  const nv = rand(0.4, 0.85);
+  state.decor[f.id] = f.zone === 'wall'
+    ? { u: uOfWall(0.3), v: 0.3 }
+    : { u: uOfScreen(rand(0.28, 0.72), nv), v: nv };
   save();
   const a = spawnFurni(f);
   refreshShop();
@@ -1109,10 +1176,12 @@ function adoptNew(breed, price) {
   save();
 
   const p = newPet(breed, name, { idx: state.pets.length - 1 });
-  p.u = 0.92; p.v = 0.28;
+  // 从画面右边的门口跑进来 → 停在画面中间，全程都要在镜头里
+  p.v = 0.28; p.u = uOfScreen(0.9, 0.28);
   stage.add(p);
   pets.push(p);
-  p.goto(rand(0.4, 0.62), rand(0.55, 0.8), () => { trick(p); p.happy(3); }, true);
+  const tv = rand(0.55, 0.8);
+  p.goto(uOfScreen(rand(0.42, 0.6), tv), tv, () => { trick(p); p.happy(3); }, true);
 
   refreshChips();
   refreshAdoptHouse();
@@ -1120,6 +1189,65 @@ function adoptNew(breed, price) {
   sfx.ding(); sfx.sparkle();
   voice('adopt_new');
   elfSay(`欢迎${name}回家！现在有 ${state.pets.length} 个小伙伴啦～`, null, 5200);
+}
+
+/* ---------------- 天气面板 ---------------- */
+function buildEnvPanel() {
+  const el = $(`<div id="env-panel"><h3>今天的天气 <button class="btn dclose">✕</button></h3>
+    <div class="dlist" style="overflow:visible">
+      <div class="env-sub">现在</div><div class="env-row" data-k="phase"></div>
+      <div class="env-sub">天气</div><div class="env-row" data-k="weather"></div>
+      <div class="env-sub">季节</div><div class="env-row" data-k="season"></div>
+      <div class="env-row" data-k="auto"></div>
+    </div></div>`);
+  el.querySelector('.dclose').addEventListener('pointerdown', (e) => {
+    e.stopPropagation(); el.classList.remove('show'); sfx.pip();
+  });
+  el.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('.env-btn');
+    if (!b) return;
+    e.stopPropagation();
+    sfx.pip();
+    const k = b.parentNode.dataset.k;
+    if (k === 'auto') { world.setAuto(); elfSay('跟着外面的天气走咯～', null, 2600); }
+    else {
+      world.set(k, b.dataset.v);
+      if (k === 'weather') elfSay(`${WEATHER_LABEL[b.dataset.v]}啦！`, null, 2600);
+      if (k === 'season') { elfSay(`${SEASON_LABEL[b.dataset.v]}到啦～`, null, 3000); reskin(); }
+      if (k === 'phase') elfSay(`${PHASE_LABEL[b.dataset.v]}了～`, null, 2600);
+    }
+    refreshEnvPanel();
+  });
+  game.appendChild(el);
+}
+function refreshEnvPanel() {
+  const el = document.getElementById('env-panel');
+  if (!el) return;
+  const rows = {
+    phase: PHASES.map((k) => [k, PHASE_LABEL[k], { dawn: '🌅', day: '🌤️', dusk: '🌇', night: '🌙' }[k]]),
+    weather: WEATHERS.map((k) => [k, WEATHER_LABEL[k], WEATHER_ICON[k]]),
+    season: SEASONS.map((k) => [k, SEASON_LABEL[k], SEASON_ICON[k]]),
+  };
+  for (const [k, list] of Object.entries(rows)) {
+    const cur = k === 'phase' ? world.curPhase : world[k];
+    el.querySelector(`.env-row[data-k="${k}"]`).innerHTML = list.map(([v, label, icon]) =>
+      `<button class="env-btn${v === cur ? ' on' : ''}" data-v="${v}"><b>${icon}</b>${label}</button>`).join('');
+  }
+  el.querySelector('.env-row[data-k="auto"]').innerHTML =
+    `<button class="env-btn${world.auto ? ' on' : ''}" style="flex:1 1 100%"><b>🕰️</b>跟着真实时间</button>`;
+}
+function openEnvPanel() {
+  cancelGroom(true);
+  if (nightOn || bathOpen) return;
+  closeDrawers('env-panel');
+  refreshEnvPanel();
+  document.getElementById('env-panel').classList.add('show');
+  elfSay('想看什么天气？点一点就能换哦～', null, 3600);
+}
+/* 换季要重铺背景 */
+function reskin() {
+  stage.bgEl.src = ART + 'bg/' + world.bgFor(sceneName);
+  world.apply();
 }
 
 /* ---------------- 生宝宝 ----------------
@@ -1301,7 +1429,7 @@ function startParkLife() {
     const b = new Actor(stage, { w: 8 });
     b.setArt('props/butterfly.png');
     b.el.style.pointerEvents = 'auto';
-    b.u = rand(0.2, 0.8); b.v = rand(0.15, 0.5);
+    b.v = rand(0.15, 0.5); b.u = uOfScreen(rand(0.18, 0.82), b.v, 'park');
     b.home = { u: b.u, v: b.v };
     b.t = rand(0, 9); b.flee = 0;
     b.el.addEventListener('pointerdown', (e) => { e.stopPropagation(); chaseButterfly(b); });
@@ -1345,10 +1473,10 @@ function chaseButterfly(b) {
   /* 走真物理：抛出去后自己弹、自己滚、撞到东西会反弹 */
   const ball = new Actor(stage, { w: 8 });
   ball.setArt('furni/ball.png');
-  ball.u = 0.5; ball.v = 0.98;
+  ball.v = 0.98; ball.u = uOfScreen(0.5, 0.98, 'park');
   stage.add(ball);
   const body = phys.addBody(new Body(ball, 0.03, { hr: 0.026, rest: 0.66, fric: 1.0, spin: 1 }));
-  const tu = rand(0.15, 0.85), tv = rand(0.25, 0.6);
+  const tv = rand(0.25, 0.6), tu = uOfScreen(rand(0.2, 0.8), tv, 'park');
   body.kick((tu - ball.u) * 1.35, (tv - ball.v) * 1.35, 0.72);
 
   // 全家一起去追，谁先到谁叼回来
@@ -1393,7 +1521,7 @@ function blowBubbles() {
     const b = new Actor(stage, { w: rand(5, 9) });
     b.setArt('props/bubble.png');
     b.el.style.pointerEvents = 'auto';
-    b.u = rand(0.2, 0.8); b.v = rand(0.55, 0.95);
+    b.v = rand(0.55, 0.95); b.u = uOfScreen(rand(0.2, 0.8), b.v, 'park');
     b.rise = rand(20, 42);
     b.el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -1499,6 +1627,7 @@ function step(dt, time) {
     const a = APet();
     if (a) stage.follow(a.u, a.v, dt);
   }
+  world.update(dt);  // 日夜推进 / 天气变化
   tickFamily(dt);  // 怀孕 / 宝宝成长
   phys.step(dt);   // 玩具的重力/弹跳/滚动、宠物绕开家具、宠物之间互不重叠
 
@@ -1598,6 +1727,7 @@ function nurseryPick(p) {
 }
 document.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
 const hasSave = load();
+if (hasSave) migrateDecor();
 if (hasSave) buildHome(); else buildAdoptScreen();
 requestAnimationFrame(loop);
 
@@ -1640,6 +1770,12 @@ if (QS.get('steps')) setTimeout(() => {
   for (let i = 0; i < n; i++) { simClock += 1 / 30; try { step(1 / 30, simClock); } catch (e) { window.__err = e.message; } }
 }, 2600);
 
+/* 调试：?season=winter&weather=snow&phase=night 直接指定环境 */
+for (const k of ['season', 'weather', 'phase']) {
+  const v = QS.get(k);
+  if (v) { world.set(k, v); if (k === 'season') reskin(); }
+}
+
 const dbg = new URLSearchParams(location.search).get('auto');
 if (dbg && hasSave) setTimeout(() => ({
   night: toggleNight, bath: openBath, shop: openShop, feed: openTray,
@@ -1647,6 +1783,8 @@ if (dbg && hasSave) setTimeout(() => ({
 })[dbg]?.(), 1500);
 /* 自检用出口（selftest.html 驱动） */
 window.__game = {
+  SPOT,
+  world, reskin, openEnvPanel,
   refreshBabyPanel, openBabyPanel,
   phys,
   get pets() { return pets; },

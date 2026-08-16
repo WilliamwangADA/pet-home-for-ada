@@ -196,6 +196,56 @@ html,body{margin:0;height:100%;overflow:hidden;background:#cfe3ee;
 #bath-meter .st{filter:grayscale(1) opacity(.5);transition:filter .3s,transform .3s cubic-bezier(.34,1.56,.64,1)}
 #bath-meter .st.lit{filter:none;transform:scale(1.25)}
 
+/* ---------- 环境：日夜 / 天气 / 四季 ---------- */
+#env{position:absolute;inset:0;pointer-events:none;z-index:2350;overflow:hidden}
+#env .env-tint,#env .env-veil{position:absolute;inset:0;transition:background .9s ease}
+#env .env-fall{position:absolute;inset:-6% -4%}
+#env .env-flash{position:absolute;inset:0;background:#fff;opacity:0}
+#env .env-flash.on{animation:envflash .5s ease-out}
+@keyframes envflash{0%{opacity:0}6%{opacity:.5}14%{opacity:.1}22%{opacity:.32}100%{opacity:0}}
+
+/* 雨 */
+#env .drop{position:absolute;top:-8%;width:.22vmin;height:5vmin;border-radius:.2vmin;
+  background:linear-gradient(rgba(190,215,245,0),rgba(190,215,245,.8));
+  animation:raindrop linear infinite}
+@keyframes raindrop{0%{transform:translate(0,-10vh)}100%{transform:translate(-4vmin,115vh)}}
+/* 雪 */
+#env .snow{position:absolute;top:-6%;width:1.1vmin;height:1.1vmin;border-radius:50%;
+  background:#fff;box-shadow:0 0 .6vmin rgba(255,255,255,.9);
+  animation:snowfall linear infinite}
+@keyframes snowfall{
+  0%{transform:translate(0,-10vh) rotate(0)}
+  50%{transform:translate(calc(var(--sw) * 8vmin),55vh) rotate(180deg)}
+  100%{transform:translate(calc(var(--sw) * -6vmin),115vh) rotate(360deg)}}
+/* 樱花瓣 */
+#env .petal-pink{position:absolute;top:-6%;width:1.5vmin;height:1.1vmin;
+  border-radius:60% 20% 60% 20%;background:#ffd3e0;
+  animation:petalfly linear infinite}
+@keyframes petalfly{
+  0%{transform:translate(0,-10vh) rotate(0)}
+  100%{transform:translate(calc(var(--sw) * 22vmin),115vh) rotate(620deg)}}
+/* 落叶 */
+#env .leaf{position:absolute;top:-6%;width:1.8vmin;height:1.3vmin;
+  border-radius:70% 12% 70% 12%;background:#e08a3c;
+  animation:petalfly linear infinite}
+#env .leaf:nth-child(3n){background:#d1552f}
+#env .leaf:nth-child(3n+1){background:#e8b33c}
+
+/* 环境面板 */
+#env-panel{position:absolute;right:0;top:0;bottom:0;width:36vmin;background:var(--cream);
+  box-shadow:-1vmin 0 3vmin rgba(120,80,40,.28);z-index:3200;
+  transform:translateX(110%);transition:transform .42s cubic-bezier(.3,1.2,.5,1);
+  display:flex;flex-direction:column;padding:max(2vmin,env(safe-area-inset-top)) 0 2vmin}
+#env-panel.show{transform:none}
+.env-row{display:flex;flex-wrap:wrap;gap:1.4vmin;padding:0 2.4vmin 2vmin}
+.env-btn{flex:1 1 40%;background:#fff;border:none;border-radius:2.4vmin;padding:1.6vmin .6vmin;
+  box-shadow:var(--ui-shadow);cursor:pointer;font-size:2.5vmin;color:var(--text);font-weight:700;
+  display:flex;flex-direction:column;align-items:center;gap:.5vmin;transition:transform .15s}
+.env-btn:active{transform:scale(.94)}
+.env-btn b{font-size:4.4vmin;font-weight:400;line-height:1}
+.env-btn.on{outline:.5vmin solid #ffb3c0;outline-offset:-.5vmin}
+.env-sub{padding:0 2.6vmin .8vmin;color:#a98a68;font-size:2.2vmin;font-weight:700}
+
 /* ---------- 粒子 ---------- */
 #fx{position:absolute;inset:0;pointer-events:none;z-index:2800}
 .pfx{position:absolute;pointer-events:none;font-size:4vmin;animation:pfly 1.1s ease-out forwards}

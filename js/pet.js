@@ -57,6 +57,7 @@ export class Pet extends Actor {
     this.nextThink = this.now + rand(2, 5);
     this.strokeAcc = 0; this.petStreak = 0;
     this.vu = 0; this.vv = 0;          // 本帧移动速度，物理层拿去算撞击力
+    this.stuckT = 0;
     this.buddyCd = 0;
 
     /* 情绪气泡 */
@@ -200,18 +201,26 @@ export class Pet extends Actor {
 
   update(dt, time) {
     this.now = time;
-    /* 在浴缸里就不走动，只轻轻浮 */
-    if (this.inTub) { this.tu = this.tv = null; }
+    /* 在浴缸里就钉住不动：位置由 settleInTub 指定，
+       任何 AI/物理/兜底都不该把它挪出缸 */
+    if (this.inTub) {
+      this.tu = this.tv = null;
+      this.stuckT = 0;
+      if (this.tubU !== undefined) { this.u = this.tubU; this.v = this.tubV; }
+    }
 
     /* 移动 */
     if (this.tu !== null) {
       const du = this.tu - this.u, dv = this.tv - this.v;
       const d = Math.hypot(du, dv * 0.7);
       const step = this.speed * (this.running ? 1.7 : 1) * dt;
+
       if (d < step * 1.2 || d < 0.004) {
+        /* 到了 */
         this.u = this.tu; this.v = this.tv;
         this.tu = this.tv = null;
         this.vu = this.vv = 0;
+        this.stuckT = 0;
         this.setMode('idle');
         const f = this.onArrive; this.onArrive = null;
         if (f) f();
@@ -229,6 +238,21 @@ export class Pet extends Actor {
         this.v += sv;
         this.vu = su / dt; this.vv = sv / dt;      // 给物理层：撞玩具的力度按这个算
         this.flip = du < 0;
+
+        /* 卡住兜底：贴着障碍走时，避障的切向力方向可能每帧翻转，
+           宠物就在原地左右抖、永远走不到。累计 1.6 秒几乎没挪窝，
+           就当它已经到了 —— 在旁边吃饭/睡觉也比卡死强。 */
+        const moved = Math.hypot(this.u - (this._lu ?? this.u), this.v - (this._lv ?? this.v));
+        this._lu = this.u; this._lv = this.v;
+        this.stuckT = moved < step * 0.4 ? (this.stuckT || 0) + dt : 0;
+        if (this.stuckT > 1.6) {
+          this.stuckT = 0;
+          this.tu = this.tv = null;
+          this.vu = this.vv = 0;
+          this.setMode('idle');
+          const f2 = this.onArrive; this.onArrive = null;
+          if (f2) f2();
+        }
       }
     }
 

@@ -31,6 +31,34 @@ addEventListener('resize', () => calcWorldW());
 /* 近大远小：depth 0=最远 1=最近 */
 export const SCALE_FAR = 0.52, SCALE_NEAR = 1.0;
 
+/* ---------------- 视野安全区 ----------------
+   房间比屏幕宽以后，u 是【整个房间】的横向坐标，u=0 和 u=1 都在镜头外。
+   所以凡是"孩子一进来就该看到、点得到"的东西（食盆、浴缸、公园里的朋友狗、
+   刚领养的宠物…），位置不能直接写 0.9，得先说"我想让它出现在屏幕的哪儿"，
+   再翻译成世界坐标。基准取开局的居中镜头 —— 用当前镜头会让物件随镜头漂。 */
+const insetAt = (v, scene) => {
+  const g = GROUND[scene] || GROUND.home;
+  return g.xFar + (g.xNear - g.xFar) * v;
+};
+const camHome = () => (WORLD_W - 1) / 2;
+/** 屏幕横向比例 t(0=左边缘 1=右边缘) → 世界 u */
+export function uOfScreen(t, v = 0.6, scene = 'home') {
+  const inset = insetAt(v, scene);
+  return (t + camHome() - inset) / (WORLD_W - inset * 2);
+}
+/** 世界 u → 居中镜头下的屏幕横向比例（<0 或 >1 就是看不见） */
+export function screenOfU(u, v = 0.6, scene = 'home') {
+  const inset = insetAt(v, scene);
+  return inset + (WORLD_W - inset * 2) * u - camHome();
+}
+/** 墙面横向：墙上挂件没有地面纵深，世界宽度就是背景本身 */
+export const uOfWall = (t) => (t + camHome()) / WORLD_W;
+/** 把位置收进"开局就看得见"的范围，pad 是留给贴纸自身宽度的边距 */
+export function clampVisible(u, v = 0.6, pad = 0.08, scene = 'home') {
+  const a = uOfScreen(pad, v, scene), b = uOfScreen(1 - pad, v, scene);
+  return Math.max(a, Math.min(b, u));
+}
+
 export class Stage {
   constructor(root) {
     this.root = root;
@@ -220,8 +248,10 @@ export class Actor {
 
   draw() {
     if (this.wall) {
+      /* 挂在墙上的东西也活在世界里：镜头左右移动时它得跟着墙走，
+         否则拖动画面时画框会像贴在屏幕玻璃上一样跟着手飘。 */
       this.el.style.width = this.w + 'vmin';
-      this.el.style.left = this.u * 100 + '%';
+      this.el.style.left = (this.u * WORLD_W - this.stage.camU) * 100 + '%';
       this.el.style.top = this.wallY * 100 + '%';
       this.el.style.zIndex = 900;
       this.rig.style.transform = `rotate(${this.tilt}deg)`;
