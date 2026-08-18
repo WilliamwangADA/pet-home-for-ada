@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.12.0';
+export const VERSION = 'v0.12.1';
 import { Stage, Actor, ART, uOfScreen, uOfWall, clampVisible, WORLD_W } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -466,8 +466,11 @@ function spawnPets(spots) {
 
 function buildHome(entering) {
   sceneName = 'home';
+  nurseryMode = false;         // 进了家就一定不在领养页，别靠调用方记得清
+  if (nurseryEl) { nurseryEl.remove(); nurseryEl = null; }
   layoutSpots();               // 屏幕比例变了（转屏），点位要跟着重算
   clearScene();
+  world.setScene('home');
   stage.setScene('home', { bg: world.bgFor('home') });
 
   bowlA = new Actor(stage, { w: 17 });
@@ -510,6 +513,7 @@ function buildHome(entering) {
 function buildPark() {
   sceneName = 'park';
   clearScene();
+  world.setScene('park');
   stage.setScene('park', { bg: world.bgFor('park') });
 
   const np = Math.max(1, state.pets.length);
@@ -1244,9 +1248,9 @@ function openEnvPanel() {
   document.getElementById('env-panel').classList.add('show');
   elfSay('想看什么天气？点一点就能换哦～', null, 3600);
 }
-/* 换季要重铺背景 */
+/* 换季要重铺背景。领养页有自己的画，别被换掉 */
 function reskin() {
-  stage.bgEl.src = ART + 'bg/' + world.bgFor(sceneName);
+  if (!nurseryMode) stage.bgEl.src = ART + 'bg/' + world.bgFor(sceneName);
   world.apply();
 }
 
@@ -1667,6 +1671,7 @@ function buildAdoptScreen() {
   nurseryMode = true;
   sceneName = 'home';
   clearScene();
+  world.setScene('nursery');
   stage.setScene('home', { bg: 'bg_adopt.jpg' });
 
   Object.keys(BREEDS).forEach((k, i) => {
@@ -1769,6 +1774,19 @@ if (QS.get('steps')) setTimeout(() => {
   const n = +QS.get('steps');
   for (let i = 0; i < n; i++) { simClock += 1 / 30; try { step(1 / 30, simClock); } catch (e) { window.__err = e.message; } }
 }, 2600);
+
+/* ?seed=N 直接塞 N 只宠物进屋 —— 截图和自动测试时跳过领养页，
+   否则新环境（headless 没存档）永远停在领养页，房间根本测不到 */
+if (QS.get('seed') && !hasSave) {   // 有存档时不动它，免得误点链接把家里的猫狗搞乱
+  const n = Math.max(1, Math.min(MAX_PETS, +QS.get('seed') || 1));
+  const bs = Object.keys(BREEDS);
+  for (let i = 0; i < n; i++) {
+    state.pets.push({ breed: bs[i % bs.length], name: NEW_NAMES[i] || '小可爱', equipped: [] });
+  }
+  state.active = 0;
+  save();
+  buildHome();
+}
 
 /* 调试：?season=winter&weather=snow&phase=night 直接指定环境 */
 for (const k of ['season', 'weather', 'phase']) {

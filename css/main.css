@@ -200,13 +200,20 @@ html,body{margin:0;height:100%;overflow:hidden;background:#cfe3ee;
 #env{position:absolute;inset:0;pointer-events:none;z-index:2350;overflow:hidden}
 #env .env-tint,#env .env-veil{position:absolute;inset:0;transition:background .9s ease}
 #env .env-fall{position:absolute;inset:-6% -4%}
+/* 室内：雨雪只能落在窗外，不然榻榻米上飘雪就穿帮了。
+   这一层的宽度和位移由 JS 抄背景图的，坐标系和背景图完全对齐，
+   于是这个裁剪框就是画里那个窗洞；镜头横移时窗洞跟着走。 */
+#env .env-fall.win{inset:0 auto 0 0;width:140%;height:100%;
+  clip-path:inset(9% 32.5% 34% 32.5%)}
 #env .env-flash{position:absolute;inset:0;background:#fff;opacity:0}
 #env .env-flash.on{animation:envflash .5s ease-out}
 @keyframes envflash{0%{opacity:0}6%{opacity:.5}14%{opacity:.1}22%{opacity:.32}100%{opacity:0}}
 
 /* 雨 */
-#env .drop{position:absolute;top:-8%;width:.22vmin;height:5vmin;border-radius:.2vmin;
-  background:linear-gradient(rgba(190,215,245,0),rgba(190,215,245,.8));
+/* 雨滴要压得住明亮的窗景，太淡了孩子根本看不出在下雨 */
+#env .drop{position:absolute;top:-8%;width:.34vmin;height:5.4vmin;border-radius:.2vmin;
+  background:linear-gradient(rgba(150,180,220,0),rgba(120,155,200,.95));
+  box-shadow:0 0 .3vmin rgba(255,255,255,.55);
   animation:raindrop linear infinite}
 @keyframes raindrop{0%{transform:translate(0,-10vh)}100%{transform:translate(-4vmin,115vh)}}
 /* 雪 */

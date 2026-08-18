@@ -115,7 +115,17 @@ export class World {
     this.auto = true;                  // 跟着现实时间走
     this.t = 0;
     this.nextRoll = 120;               // 每两分钟可能换一次天气
+    this.scene = 'home';
   }
+
+  /** 室内室外，决定雨雪是满屏下还是只下在窗外 */
+  setScene(scene) {
+    if (scene === this.scene) return;
+    this.scene = scene;
+    this._fallKey = null;              // 强制重建，室内室外颗数不一样
+    this.buildFall();
+  }
+  get indoor() { return this.scene === 'home'; }
 
   set(part, v) {
     if (part === 'phase') { this.phase = v; this.auto = false; }
@@ -170,6 +180,13 @@ export class World {
       const f = SEASON_FALL[s] || {};
       cls = f.cls; n = f.n || 0;
     }
+    /* 领养页是另一张画（木屋育婴室），窗洞对不上，索性不下 */
+    if (this.scene === 'nursery') { cls = ''; n = 0; }
+    /* 室内只有窗洞那一块看得见（约三分之一宽），颗数补一些，
+       但不按面积等比放大 —— 隔着窗看雨本来就该稀一点，也省得 iPad 上卡 */
+    const win = this.indoor && cls;
+    this.fallEl.classList.toggle('win', !!win);
+    if (win) n = Math.round(n * 1.6);
     if (this._fallKey === cls + n) return;
     this._fallKey = cls + n;
     if (!cls || !n) { this.fallEl.innerHTML = ''; return; }
@@ -185,6 +202,7 @@ export class World {
         transform:scale(${(0.6 + Math.random() * 0.8).toFixed(2)})"></i>`;
     }
     this.fallEl.innerHTML = html;
+    if (win) this.syncCam();      // 立刻对齐一次，别等下一帧
   }
 
   /** 雷雨时偶尔闪一下 */
@@ -194,8 +212,26 @@ export class World {
     this.flashEl.classList.add('on');
   }
 
+  /** 室内时让粒子层贴着背景图走，窗洞才不会跟画面错位 */
+  syncCam() {
+    if (!this.fallEl.classList.contains('win') || !this.stage) {
+      // 出了屋就还原，不然院子的雨还带着室内那份位移
+      if (this._cw != null) {
+        this.fallEl.style.width = this.fallEl.style.transform = '';
+        this._cw = this._ct = null;
+      }
+      return;
+    }
+    const bg = this.stage.bgEl;
+    if (!bg) return;
+    const w = bg.style.width || '140%', t = bg.style.transform;
+    if (w !== this._cw) { this.fallEl.style.width = w; this._cw = w; }
+    if (t !== this._ct) { this.fallEl.style.transform = t; this._ct = t; }
+  }
+
   update(dt) {
     this.t += dt;
+    this.syncCam();
     if (this.auto) {
       const p = phaseByClock(), s = seasonByClock();
       if (p !== this.phase || s !== this.season) {

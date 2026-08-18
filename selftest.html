@@ -504,6 +504,29 @@ async function main() {
       wd.set('weather', 'rain'); run(4);
       const drops = fr.contentDocument.querySelectorAll('#env .drop');
       check('下雨时有雨滴', drops.length > 10, `${drops.length} 滴`);
+      // 室内雨雪只能落在窗外：粒子层必须和背景图严丝合缝地重合，
+      // 否则那个按背景图比例定的窗洞裁剪框会歪到墙上去
+      {
+        const bg = G.stage.bgEl.getBoundingClientRect();
+        const fa = wd.fallEl.getBoundingClientRect();
+        check('室内雨雪限制在窗外', wd.fallEl.classList.contains('win'),
+          `class=${wd.fallEl.className}`);
+        check('雨雪层和背景图对齐',
+          Math.abs(bg.left - fa.left) < 2 && Math.abs(bg.width - fa.width) < 2,
+          `背景 ${bg.left.toFixed(0)}+${bg.width.toFixed(0)} / 粒子 ${fa.left.toFixed(0)}+${fa.width.toFixed(0)}`);
+      }
+      // 到了院子就该满屏下，而且不能留着室内那份位移。
+      // goPark 是过场动画里换的场景，得等真实时间，run() 推的是模拟时钟
+      G.goPark(); await sleep(900); run(6);
+      {
+        const fa = wd.fallEl;
+        check('院子里雨雪是满屏的', !fa.classList.contains('win'), `class=${fa.className}`);
+        check('出屋后粒子层位移已还原', !fa.style.transform && !fa.style.width,
+          `w=${fa.style.width || '-'} t=${fa.style.transform || '-'}`);
+      }
+      G.goHome(); await sleep(900); run(6);
+      check('回屋后又只下在窗外', wd.fallEl.classList.contains('win'));
+
       // 夜晚要压暗
       wd.set('phase', 'day'); run(4);
       const dayF = G.stage.bgEl.style.filter;
