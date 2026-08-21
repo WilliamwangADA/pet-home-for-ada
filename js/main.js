@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.12.1';
+export const VERSION = 'v0.13.0';
 import { Stage, Actor, ART, uOfScreen, uOfWall, clampVisible, WORLD_W } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -560,16 +560,64 @@ function transition(fn) {
 let panDrag = null;
 game.addEventListener('pointerdown', (e) => {
   if (e.target.closest('#hud,#toolbar,.tray,.drawer,#adopt,#elf')) return;
-  panDrag = { x: e.clientX };
+  if (panDrag) return;                       // 已经有一根手指在拖了，第二根不抢
+  panDrag = { x: e.clientX, id: e.pointerId };
 });
 addEventListener('pointermove', (e) => {
-  if (!panDrag) return;
+  if (!panDrag || e.pointerId !== panDrag.id) return;
   stage.nudge(e.clientX - panDrag.x);
   panDrag.x = e.clientX;
 });
-const endPan = () => { if (panDrag) { stage.release(); panDrag = null; } };
+const endPan = (e) => {
+  if (!panDrag || (e && e.pointerId !== panDrag.id)) return;
+  stage.release(); panDrag = null;
+};
 addEventListener('pointerup', endPan);
 addEventListener('pointercancel', endPan);
+
+/* ---------------- 屏幕适配（iPad 4:3 / 竖屏都要排得下）----------------
+   按钮尺寸原来写死 12vmin：16:9 的电脑上刚好，到了 iPad 的 4:3 就有
+   10 个按钮 × 12vmin > 一屏宽，两头的「喂饭」「去院子」被切掉。
+   这里按实际屏宽反推一个能装下的尺寸，转屏时重算。 */
+function fitToolbar() {
+  const bar = document.getElementById('toolbar');
+  if (!bar) return;
+  const n = bar.children.length;
+  if (!n) return;
+  const vmin = Math.min(innerWidth, innerHeight) / 100;
+  const gapRatio = 0.2;                                   // 和 CSS 里的 gap 保持一致
+  /* 算出来直接写成 px：写 vmin 的话，之后视口一变（转屏、分屏）
+     比例会跟着漂，量出来的宽度就不作数了 */
+  let w = Math.min(12 * vmin, innerWidth * 0.96 / (n + (n - 1) * gapRatio));
+  bar.style.setProperty('--tbw', w.toFixed(1) + 'px');
+  /* 再量一遍真实宽度兜底：字号、边框都可能让它比算的胖一点 */
+  for (let i = 0; i < 4 && bar.scrollWidth > innerWidth * 0.97; i++) {
+    w *= innerWidth * 0.97 / bar.scrollWidth;
+    bar.style.setProperty('--tbw', w.toFixed(1) + 'px');
+  }
+}
+
+/* 转屏 / 分屏：工具栏重排，领养页的小家伙也重新站好 */
+let fitTimer = 0;
+addEventListener('resize', () => {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => {
+    fitToolbar();
+    if (nurseryMode) nurseryPets.forEach((p) => {
+      if (p.slot != null) p.u = uOfScreen(p.slot, p.v, 'home');
+    });
+  }, 120);
+});
+
+/* iPad Safari 从 iOS 10 起就不认 user-scalable=no —— 两根手指一撑，
+   画面就被缩放歪掉，5 岁的孩子自己转不回来。这里把捏合手势直接吃掉。 */
+['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => {
+  document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
+});
+/* 双指/双击带来的整页滚动同样掐掉（舞台上的单指拖动不受影响） */
+document.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
 
 /* ---------------- UI ---------------- */
 let chipsEl;
@@ -620,6 +668,8 @@ function buildUI(kind) {
     })[b.dataset.act]();
   });
   game.appendChild(bar);
+  fitToolbar();
+  requestAnimationFrame(fitToolbar);
 
   if (kind === 'home') { buildTray(); buildShop(); buildWardrobe(); buildAdoptHouse(); buildBabyPanel(); buildEnvPanel(); buildBathMeter(); buildBrushLayer(); }
 }
@@ -1678,8 +1728,12 @@ function buildAdoptScreen() {
     const col = i % 4, row = (i / 4) | 0;
     const p = newPet(k, BREEDS[k].label, { idx: i, w: 20 });
     p.breedKey = k;
-    p.u = 0.15 + col * 0.235;
+    /* iPad 是 4:3，比 16:9 窄得多，世界又比屏幕宽 —— 按世界坐标排会有一半跑出画面。
+       所以先说"我要它在屏幕的哪一格"，再翻译成世界坐标。 */
     p.v = row === 0 ? 0.32 : 0.72;
+    /* 前后两排错开半格，后排才不会被前排整只挡住 */
+    p.slot = (row === 0 ? 0.09 : 0.19) + col * 0.20;
+    p.u = uOfScreen(p.slot, p.v, 'home');
     stage.add(p);
     nurseryPets.push(p);
     setInterval(() => { if (nurseryMode && Math.random() < 0.35) p.happy(1.4); }, 2600 + i * 320);
@@ -1731,6 +1785,13 @@ function nurseryPick(p) {
   if (v) v.textContent = VERSION;
 }
 document.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
+/* 竖着拿也能玩，只是画面窄 —— CSS 只在竖屏时把它亮出来，7 秒后自己淡走 */
+{
+  const tip = document.createElement('div');
+  tip.id = 'turn-tip';
+  tip.textContent = '把 iPad 转个身，小窝会变宽哦～';
+  document.getElementById('game').appendChild(tip);
+}
 const hasSave = load();
 if (hasSave) migrateDecor();
 if (hasSave) buildHome(); else buildAdoptScreen();
