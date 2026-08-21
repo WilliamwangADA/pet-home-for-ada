@@ -231,7 +231,7 @@ export class World {
 
   update(dt) {
     this.t += dt;
-    this.syncCam();
+    /* 对齐挪到主循环里 stage.update 之后做（见 main.js），这里再调就是慢一帧 */
     if (this.auto) {
       const p = phaseByClock(), s = seasonByClock();
       if (p !== this.phase || s !== this.season) {

@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.13.0';
+export const VERSION = 'v0.13.1';
 import { Stage, Actor, ART, uOfScreen, uOfWall, clampVisible, WORLD_W } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';
@@ -1700,6 +1700,9 @@ function step(dt, time) {
     b.u += Math.sin(time + b.rise) * 0.0006;
   }
   stage.update(dt);
+  /* 粒子层贴着背景图走，必须等 stage 把这一帧的镜头算完再对齐。
+     放在 world.update 里就永远慢一帧 —— 镜头移动时窗外的雨会飘出窗框。 */
+  world.syncCam();
 }
 
 /* 全局只用这一个累加时钟。以前主循环用 rAF 的绝对时间戳、
@@ -1797,10 +1800,30 @@ if (hasSave) migrateDecor();
 if (hasSave) buildHome(); else buildAdoptScreen();
 requestAnimationFrame(loop);
 
-requestAnimationFrame(() => {
-  const b = document.getElementById('boot');
-  if (b) { b.classList.add('gone'); setTimeout(() => b.remove(), 700); }
-});
+/* 收起加载页的时机：等这一屏的背景真的下载完，再让爪印退场。
+   以前是第一帧就收，背景还在路上，孩子看到的是一张半成品的空屋子 ——
+   看起来就像"卡住了"。最多等 6 秒，网络再慢也不会一直困在加载页。 */
+{
+  const bg = stage.bgEl;
+  const ready = (bg && bg.complete && bg.naturalWidth) ? Promise.resolve()
+    : new Promise((r) => {
+        if (!bg) return r();
+        bg.addEventListener('load', r, { once: true });
+        bg.addEventListener('error', r, { once: true });
+      });
+  Promise.race([ready, new Promise((r) => setTimeout(r, 6000))]).then(() => {
+    requestAnimationFrame(() => {
+      const b = document.getElementById('boot');
+      if (b) { b.classList.add('gone'); setTimeout(() => b.remove(), 700); }
+      /* 首屏出来之后，再让 SW 去把剩下的素材囤进离线缓存。
+         囤货和首屏抢带宽的话，就是孩子盯着爪印看半天的那种慢。 */
+      setTimeout(() => {
+        const sw = navigator.serviceWorker;
+        if (sw && sw.controller) sw.controller.postMessage({ type: 'precache' });
+      }, 2500);
+    });
+  });
+}
 if (hasSave) setTimeout(() => {
   elfSay(`欢迎回来！${activePet().name}好想你呀～`, null, 4000);
   const p = APet(); if (p) { p.jump(1); barkOf(p); }

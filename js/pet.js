@@ -28,6 +28,11 @@ const POSE_W = { idle: 1.0, walk: 1.06, sit: 0.92, sleep: 1.12, happy: 1.0 };
 /* 宝宝相对成年的体型倍数 */
 export const BABY_W = 0.58;
 
+/* 等页面闲下来再干的事（Safari 老版本没有 requestIdleCallback，退回定时器） */
+const whenIdle = (fn) => (typeof requestIdleCallback === 'function'
+  ? requestIdleCallback(fn, { timeout: 2500 })
+  : setTimeout(fn, 1200));
+
 export class Pet extends Actor {
   constructor(stage, breed, name, opts = {}) {
     super(stage, { w: opts.w || 27 });
@@ -40,10 +45,16 @@ export class Pet extends Actor {
     this.el.classList.add('pet');
     if (this.npc) this.el.classList.add('npc');
 
-    // 5 张姿态图一次全建好并预解码，之后切姿态零延迟、不会闪空
-    for (const list of Object.values(POSE_FRAMES))
-      for (const f of list) this.addArt(`pets/${breed}_${f}.png`);
-    this.addArt(`pets/${breed}_baby.png`);
+    /* 姿态图仍然一次全建好、靠 hidden 切换（改 src 会重新解码，切姿态会闪空），
+       但分两批下载：领养页一屏就是 8 只 × 9 张 = 2 米多的图，全压在首屏，
+       孩子得盯着加载页多转好几秒。站/开心是马上要用的，先下；
+       走/坐/睡/宝宝等页面闲下来再补，那时离用到还早。 */
+    for (const f of [...POSE_FRAMES.idle, ...POSE_FRAMES.happy])
+      this.addArt(`pets/${breed}_${f}.png`);
+    whenIdle(() => {
+      for (const f of [...POSE_FRAMES.walk, ...POSE_FRAMES.sit, ...POSE_FRAMES.sleep, 'baby'])
+        this.addArt(`pets/${breed}_${f}.png`);
+    });
     this.mode = 'idle';
     this.setPose('idle');
 
@@ -206,7 +217,12 @@ export class Pet extends Actor {
     if (this.inTub) {
       this.tu = this.tv = null;
       this.stuckT = 0;
-      if (this.tubU !== undefined) { this.u = this.tubU; this.v = this.tubV; }
+      if (this.tubU !== undefined) {
+        this.u = this.tubU; this.v = this.tubV;
+        /* 姿势也一起钉住：偶尔（约五次洗澡里有一次）会有别处的
+           setMode('idle') 插进来，狗就站在缸里而不是坐着泡澡 */
+        if (this.mode !== 'sit') this.setMode('sit');
+      }
     }
 
     /* 移动 */

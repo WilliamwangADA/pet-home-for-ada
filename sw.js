@@ -1,19 +1,23 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.13.0';
+const VER = 'pet-home-v0.13.1';
 const CORE = [
   './', 'index.html', 'css/main.css',
   'js/main.js', 'js/stage.js', 'js/world.js', 'js/pet.js', 'js/phys.js', 'js/data.js', 'js/audio.js', 'js/save.js',
   'manifest.webmanifest',
 ];
+/* 预缓存分档：越靠前越早囤。
+   顺序＝孩子最可能先看到什么：现在这屏的背景 → 宠物 → 家具道具 →
+   换季才用得上的背景 → 配音。一次性全开会把首屏的图挤到队尾。 */
 const ART = [
-  ...['spring','summer','autumn','winter'].flatMap(s => [`bg/bg_home_${s}.jpg`, `bg/bg_park_${s}.jpg`]),
   'bg/bg_home_wide.jpg', 'bg/bg_park_wide.jpg', 'bg/bg_adopt.jpg',
+  'bg/fg_home.png', 'bg/fg_park.png',
   ...['shiba','corgi','golden','bichon','calico','orange','gray','tuxedo']
       .flatMap(b => ['idle','idle_b','walk','walk_b','sit','sleep','happy','happy_b','baby']
         .map(p => `pets/${b}_${p}.png`)),
   ...['bed','cushion','ball','yarn','bone','plant','lamp','frame'].map(f => `furni/${f}.png`),
   ...['bowl_food','bowl_half','bowl_empty','bowl_water','tub','elf','butterfly','bubble'].map(f => `props/${f}.png`),
   ...['bow','strawhat','partyhat','flower','scarf','bowtie','glasses','wings'].map(f => `clothes/${f}.png`),
+  ...['spring','summer','autumn','winter'].flatMap(s => [`bg/bg_home_${s}.jpg`, `bg/bg_park_${s}.jpg`]),
 ].map(f => `assets/art/${f}`);
 
 const VOICES = ['welcome','pick','adopt_done','home_first','hungry','dirty','feed_done',
@@ -38,12 +42,38 @@ self.addEventListener('activate', (e) => {
        主动通知页面重载一次，让它换上新代码。 */
     const cs = await self.clients.matchAll({ type: 'window' });
     for (const c of cs) c.postMessage({ type: 'sw-updated', ver: VER });
-    // 后台预缓存配音，失败不影响游戏
-    const c = await caches.open(VER);
-    // 先缓存美术（首屏最需要），再缓存配音
-    for (const u of ART) c.add(u).catch(() => {});
-    VOICES.forEach(u => c.add(u).catch(() => {}));
   })());
+});
+
+/* ---------------- 后台囤货 ----------------
+   以前是 activate 里 `for (const u of ART) c.add(u)` —— 140 多个请求
+   同一瞬间全部开火，把首屏那张背景和 8 只小猫小狗挤到队尾，
+   孩子只能盯着爪印加载页干等。现在改成：
+     ① 等页面把第一屏画出来了，主动发消息过来才开始
+     ② 同时最多 3 个请求，抢不走前台的带宽
+     ③ 按重要性排队，先囤马上要用的 */
+let warming = false;
+async function warmCache() {
+  if (warming) return;
+  warming = true;
+  const list = [...ART, ...VOICES];
+  const c = await caches.open(VER);
+  let i = 0;
+  const worker = async () => {
+    while (i < list.length) {
+      const u = list[i++];
+      try {
+        if (await c.match(u)) continue;          // 已经在缓存里就跳过
+        const r = await fetch(u);
+        if (r.ok) await c.put(u, r);
+      } catch (e) { /* 单张失败不影响游戏 */ }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+}
+
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'precache') e.waitUntil(warmCache());
 });
 
 self.addEventListener('fetch', (e) => {
