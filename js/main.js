@@ -1,5 +1,5 @@
 /* ============ Ada的宠物小窝 · 主逻辑 v0.9.0（2.5D 手绘 + 真物理 + 换装）============ */
-export const VERSION = 'v0.13.1';
+export const VERSION = 'v0.13.2';
 import { Stage, Actor, ART, uOfScreen, uOfWall, clampVisible, WORLD_W } from './stage.js';
 import { Pet } from './pet.js';
 import { BREEDS, FURNI, CLOTHES, isCat } from './data.js';

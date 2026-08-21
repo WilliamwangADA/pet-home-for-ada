@@ -28,6 +28,33 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#cfe3ee;
   color:rgba(120,90,60,.55);pointer-events:none;letter-spacing:.05em}
 </style>
 <link rel="stylesheet" href="css/main.css">
+<!-- 模块预载：不写的话浏览器要先下 main.js、解析出 import 才知道还有 7 个模块，
+     白白多排一轮队。老 Safari 不认这行，忽略掉也没副作用。 -->
+<link rel="modulepreload" href="js/main.js">
+<link rel="modulepreload" href="js/stage.js">
+<link rel="modulepreload" href="js/pet.js">
+<link rel="modulepreload" href="js/world.js">
+<link rel="modulepreload" href="js/phys.js">
+<link rel="modulepreload" href="js/data.js">
+<link rel="modulepreload" href="js/save.js">
+<link rel="modulepreload" href="js/audio.js">
+<script>
+/* 首屏那张背景，本来要等 html → js → 解析 import → 跑起来 才发出请求，
+   白等一个来回。这里立刻猜出该用哪张先下起来：有存档就是当季的家，
+   没有就是领养小屋。猜错了也只是多下一张，不影响正确性。
+   （季节判断和 world.js 的 seasonByClock 一致，改那边记得同步改这里） */
+(function () {
+  try {
+    var m = new Date().getMonth() + 1;
+    var s = m >= 3 && m <= 5 ? 'spring' : m >= 6 && m <= 8 ? 'summer'
+          : m >= 9 && m <= 11 ? 'autumn' : 'winter';
+    var f = localStorage.getItem('pet-home-ada-v1') ? 'bg_home_' + s + '.jpg' : 'bg_adopt.jpg';
+    var l = document.createElement('link');
+    l.rel = 'preload'; l.as = 'image'; l.href = 'assets/art/bg/' + f;
+    document.head.appendChild(l);
+  } catch (e) { /* 隐私模式下 localStorage 会抛，预载只是锦上添花 */ }
+})();
+</script>
 </head>
 <body>
 <div id="boot"><div class="paw">🐾</div><p>小窝开门啦</p></div>

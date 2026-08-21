@@ -234,13 +234,21 @@ export class Actor {
     this.imgs.set(file, im);
     return im;
   }
+  /* 换贴图：新图还没解码好就先留着旧图，等它 load 了再换。
+     不然"按需建图"的那几张（走/坐/睡）第一次用到时会有一两帧透明，
+     看起来就像宠物凭空消失了一下。 */
   setArt(file) {
     if (this._cur === file) return;
     const im = this.addArt(file);
-    if (this.img) this.img.hidden = true;
-    im.hidden = false;
-    this.img = im;
     this._cur = file;
+    const show = () => {
+      if (this._cur !== file) return;          // 这期间又换姿态了，别抢
+      if (this.img && this.img !== im) this.img.hidden = true;
+      im.hidden = false;
+      this.img = im;
+    };
+    if (im.complete && im.naturalWidth) show();
+    else im.addEventListener('load', show, { once: true });
   }
 
   /** 贴纸真实显示高度（px）。.actor 高度是 0，只能量 .rig */

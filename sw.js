@@ -1,5 +1,5 @@
 /* SW：核心文件 stale-while-revalidate 秒开，素材缓存优先，首访后离线可玩 */
-const VER = 'pet-home-v0.13.1';
+const VER = 'pet-home-v0.13.2';
 const CORE = [
   './', 'index.html', 'css/main.css',
   'js/main.js', 'js/stage.js', 'js/world.js', 'js/pet.js', 'js/phys.js', 'js/data.js', 'js/audio.js', 'js/save.js',
@@ -9,8 +9,11 @@ const CORE = [
    顺序＝孩子最可能先看到什么：现在这屏的背景 → 宠物 → 家具道具 →
    换季才用得上的背景 → 配音。一次性全开会把首屏的图挤到队尾。 */
 const ART = [
-  'bg/bg_home_wide.jpg', 'bg/bg_park_wide.jpg', 'bg/bg_adopt.jpg',
-  'bg/fg_home.png', 'bg/fg_park.png',
+  /* 只囤游戏真会去请求的。bg_home/park.jpg、*_wide.jpg、fg_*.png 是早几版
+     留下的，现在代码里一次都没引用（背景走 world.bgFor 的季节图，前景层
+     stage.setScene 没传 fg 就整层关掉了）—— 以前照样每台设备白下 1.7MB。
+     文件先留在仓库里，哪天前景层回来了直接加回这张表。 */
+  'bg/bg_adopt.jpg',
   ...['shiba','corgi','golden','bichon','calico','orange','gray','tuxedo']
       .flatMap(b => ['idle','idle_b','walk','walk_b','sit','sleep','happy','happy_b','baby']
         .map(p => `pets/${b}_${p}.png`)),

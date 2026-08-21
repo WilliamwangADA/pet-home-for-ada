@@ -46,13 +46,14 @@ export class Pet extends Actor {
     if (this.npc) this.el.classList.add('npc');
 
     /* 姿态图仍然一次全建好、靠 hidden 切换（改 src 会重新解码，切姿态会闪空），
-       但分两批下载：领养页一屏就是 8 只 × 9 张 = 2 米多的图，全压在首屏，
-       孩子得盯着加载页多转好几秒。站/开心是马上要用的，先下；
-       走/坐/睡/宝宝等页面闲下来再补，那时离用到还早。 */
-    for (const f of [...POSE_FRAMES.idle, ...POSE_FRAMES.happy])
-      this.addArt(`pets/${breed}_${f}.png`);
+       但分两批下载：领养页一屏就是 8 只 × 9 张，全压在首屏，孩子得盯着
+       加载页多转好几秒。真正"一进来就要画"的只有站姿第一帧，先下它；
+       眨眼的第二帧、开心/走/坐/睡/宝宝等页面闲下来再补 —— 就算真赶在
+       补完之前用到，setArt 会先留着旧图，不会闪空。 */
+    this.addArt(`pets/${breed}_${POSE_FRAMES.idle[0]}.png`);
     whenIdle(() => {
-      for (const f of [...POSE_FRAMES.walk, ...POSE_FRAMES.sit, ...POSE_FRAMES.sleep, 'baby'])
+      for (const f of [POSE_FRAMES.idle[1], ...POSE_FRAMES.happy, ...POSE_FRAMES.walk,
+                       ...POSE_FRAMES.sit, ...POSE_FRAMES.sleep, 'baby'])
         this.addArt(`pets/${breed}_${f}.png`);
     });
     this.mode = 'idle';
